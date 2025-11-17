@@ -1,0 +1,125 @@
+openapi: 3.0.0
+info:
+  title: Get Upload URL
+  version: 1.0.0
+  description: |
+    Get a presigned S3 URL for uploading a photo to an album.
+    
+    **Note**: This is part of the modular API contract structure. See `README.md` in this directory for the complete API overview and list of all contracts.
+
+servers:
+  - url: <Placeholder for API Gateway URL>
+    description: Production API Gateway
+
+security:
+  - BearerAuth: []
+
+paths:
+  /albums/{albumId}/presigned-upload:
+    post:
+      summary: Get Upload URL
+      operationId: getUploadURL
+      description: Get a presigned S3 URL for uploading a photo to an album
+      tags:
+        - Photos
+      parameters:
+        - name: albumId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - fileName
+                - fileSize
+                - mimeType
+              properties:
+                fileName:
+                  type: string
+                  maxLength: 255
+                  example: "sunset_beach.jpg"
+                fileSize:
+                  type: integer
+                  minimum: 1
+                  maximum: 52428800
+                  example: 2048576
+                mimeType:
+                  type: string
+                  enum: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic"]
+                  example: "image/jpeg"
+      responses:
+        200:
+          description: Presigned upload URL generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uploadUrl:
+                    type: string
+                    format: uri
+                    description: Presigned S3 URL (valid for 15 minutes)
+                  photoId:
+                    type: string
+                    format: uuid
+                    description: Unique identifier for this photo
+                  expiresIn:
+                    type: integer
+                    description: URL expiration time in seconds
+                    example: 900
+        400:
+          description: Invalid request (file too large, invalid MIME type, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        401:
+          description: Unauthorized
+        404:
+          description: Album not found
+        500:
+          description: Internal server error
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from authentication provider
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - NOT_FOUND
+                - UNAUTHORIZED
+                - FILE_TOO_LARGE
+                - INVALID_FORMAT
+                - INTERNAL_ERROR
+              example: "VALIDATION_ERROR"
+            message:
+              type: string
+              example: "File size exceeds 50 MB limit"
+            details:
+              type: object
+              nullable: true

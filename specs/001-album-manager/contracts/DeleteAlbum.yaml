@@ -1,0 +1,92 @@
+openapi: 3.0.0
+
+info:
+  title: Delete Album
+  version: 1.0.0
+  description: |
+    Delete an entire album and all its associated photos.
+    
+    **Note**: This is part of the modular API contract structure. See `README.md` in this directory for the complete API overview and list of all contracts.
+
+servers:
+  - url: <Placeholder for API Gateway URL>
+    description: Production API Gateway
+
+security:
+  - BearerAuth: []
+
+paths:
+  /albums/{albumId}:
+    delete:
+      summary: Delete Album
+      operationId: deleteAlbum
+      description: Delete an entire album and all its associated photos (removes from DynamoDB and S3)
+      tags:
+        - Albums
+      parameters:
+        - name: albumId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        204:
+          description: Album deleted successfully
+        400:
+          description: Invalid request (album not found, album ID malformed, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        404:
+          description: Album not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from authentication provider
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - NOT_FOUND
+                - UNAUTHORIZED
+                - INTERNAL_ERROR
+              example: "NOT_FOUND"
+            message:
+              type: string
+              example: "Album not found"
+            details:
+              type: object
+              nullable: true
+              example:
+                albumId: "550e8400-e29b-41d4-a716-446655440000"

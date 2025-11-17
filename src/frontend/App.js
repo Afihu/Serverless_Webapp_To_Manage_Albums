@@ -1,0 +1,1 @@
+// All functionsn and components related to the Album Manager feature will be implemented here.
