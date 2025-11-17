@@ -1,0 +1,85 @@
+openapi: 3.0.0
+info:
+  title: Delete Image
+  version: 1.0.0
+  description: |
+    Delete a photo from an album (removes from S3 and DynamoDB).
+    
+    **Note**: This is part of the modular API contract structure. See `README.md` in this directory for the complete API overview and list of all contracts.
+
+servers:
+  - url: <Placeholder for API Gateway URL>
+    description: Production API Gateway
+
+security:
+  - BearerAuth: []
+
+paths:
+  /photos/{photoId}:
+    delete:
+      summary: Delete Photo
+      operationId: deleteImage
+      description: Delete a photo from an album (removes from S3 and DynamoDB)
+      tags:
+        - Photos
+      parameters:
+        - name: photoId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        204:
+          description: Photo deleted successfully
+        401:
+          description: Unauthorized
+        404:
+          description: Photo not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from authentication provider
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - NOT_FOUND
+                - UNAUTHORIZED
+                - FILE_TOO_LARGE
+                - INVALID_FORMAT
+                - INTERNAL_ERROR
+              example: "NOT_FOUND"
+            message:
+              type: string
+              example: "Photo not found"
+            details:
+              type: object
+              nullable: true
