@@ -9,16 +9,17 @@ As of v1.0.0, the Photo Album Manager API uses a **modular, decoupled contract s
 
 ## Contract Files
 
-| Contract | Purpose | Endpoint |
-|----------|---------|----------|
-| `CreateAlbum.yaml` | Create a new photo album | `POST /albums` |
-| `ListAlbums.yaml` | List all albums for user | `GET /albums` |
-| `GetUploadURL.yaml` | Get presigned S3 upload URL | `POST /albums/{albumId}/presigned-upload` |
-| `UpdateImageMetadata.yaml` | Update photo metadata (S3 event trigger) | `PUT /photos/{photoId}/metadata` (internal) |
-| `GetDownloadURL.yaml` | Get presigned S3 download URL (original or thumbnail) | `POST /photos/{photoId}/presigned-download` |
-| `DeleteImage.yaml` | Delete a photo | `DELETE /photos/{photoId}` |
-| `DeleteAlbum.yaml` | Delete an entire album and all its photos | `DELETE /albums/{albumId}` |
-| `UpdateAlbum.yaml` | Update album metadata (name, description) | `PUT /albums/{albumId}` |
+| Contract | Purpose | Endpoint | Lambda Function |
+|----------|---------|----------|-----------------|
+| `CreateAlbum.yaml` | Create a new photo album | `POST /albums` | CreateAlbumFunction |
+| `ListAlbums.yaml` | List all albums for user | `GET /albums` | ListAlbumsFunction |
+| `GetUploadURL.yaml` | Get presigned S3 upload URL | `POST /albums/{albumId}/photos/presigned-upload` | GetUploadURLFunction |
+| `GetThumbnails.yaml` | Get array of presigned S3 URLs for batch of thumbnails | `GET /albums/{albumId}/photos` | GetDownloadURLFunction |
+| `GetOriginalImage.yaml` | Get presigned S3 URL for original full-resolution image | `GET /albums/{albumId}/photos/{photoId}` | GetDownloadURLFunction |
+| `UpdateImageMetadata.yaml` | Update photo metadata (S3 event handler) | `PUT /photos/{photoId}/metadata` (internal) | UpdateImageDataFunction |
+| `UpdateAlbum.yaml` | Update album metadata (name, description) | `PUT /albums/{albumId}` | UpdateAlbumFunction |
+| `DeleteAlbum.yaml` | Delete entire album and all its photos | `DELETE /albums/{albumId}` | DeleteAlbumFunction |
+| `DeleteImage.yaml` | Delete a photo | `DELETE /albums/{albumId}/photos/{photoId}` | DeleteImageFunction |
 
 ## Key Features
 
@@ -26,7 +27,8 @@ As of v1.0.0, the Photo Album Manager API uses a **modular, decoupled contract s
 - **Single Responsibility**: Each contract file focuses on one operation
 - **Easier Maintenance**: Changes to one endpoint don't require touching others
 - **Clear Dependencies**: Cross-references to related contracts are explicit
-- **Presigned URL Architecture**: `GetDownloadURL` returns presigned URLs; clients access S3 directly without additional Lambda invocations
+- **Consolidated GetDownloadURL**: Both `GetThumbnails` and `GetOriginalImage` endpoints are backed by a single `GetDownloadURLFunction` Lambda, optimizing code reuse while maintaining clear REST semantics
+- **Presigned URL Architecture**: Endpoints return presigned URLs; clients access S3 directly without additional Lambda invocations
 - **Schema Reusability**: Common schemas (Album, Photo, ErrorResponse) are duplicated for independence; consider extracting to shared `components.yaml` if needed in future versions
 
 ## How to Use

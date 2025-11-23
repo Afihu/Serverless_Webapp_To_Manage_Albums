@@ -26,12 +26,15 @@ Every feature is built on AWS services as the primary platform. Specifically:
 ### II. Java with AWS SDK v2
 All code is written in Java using the official AWS SDK for Java v2 (software.amazon.awssdk.*). Java is mandatory to ensure type safety, build consistency, and strong AWS integration. No polyglot runtimes permitted without documented architectural justification and approval.
 
-### III. One Maven Project Per Lambda
-Each Lambda deployment unit (function) has its own Maven project (pom.xml) at repository root as a separate module. This ensures:
-- Isolated dependency management per Lambda function
-- Deployable .jar packaging without extraneous dependencies
-- Independent versioning and release cycles
-- Clear separation of concerns and deployment boundaries
+### III. Operation-Based Lambda Architecture
+Lambda functions are organized by **operation** (e.g., CreateEntry, ReadEntry, UpdateEntry) rather than entity type (Album vs. Image). Each Lambda deployment unit has its own Maven project (pom.xml) at repository root as a separate module. This ensures:
+- **Single Responsibility**: Each Lambda handles one domain operation (CRUD, retrieval, event processing)
+- **Type Polymorphism via Discriminators**: Reusable logic across entity types using `type` parameter (e.g., `type=album` or `type=image`) in request payloads
+- **Isolated dependency management** per Lambda function
+- **Deployable .jar packaging** without extraneous dependencies
+- **Independent versioning and release cycles**
+- **Clear separation of concerns** and deployment boundaries
+- **Code Reuse Without Duplication**: Shared layer provides common CRUD operations, validation, and error handling consumed by each operation Lambda
 
 ### IV. Test And Re-deployment Cycle
 - All tests are written as Lambda test events and must be present before implementation as there are currently no concrete method for testing locally.
@@ -120,9 +123,10 @@ This constitution supersedes all other project practices and guidelines. All PRs
 
 1. **Architecture**: Feature uses AWS Lambda/S3/DynamoDB as specified
 2. **Language**: Code is Java 21 with AWS SDK v2; no polyglot without exception
-3. **Build Model**: Each Lambda has its own Maven pom.xml, builds to deployable .jar
-4. **Testing**: Test events written first, deployed to Lambda, tested on the platform.
-5. **Observability**: Structured logging via SLF4J in place, trace IDs present
+3. **Build Model**: Each Lambda has its own Maven pom.xml, builds to deployable .jar; organized by operation not entity
+4. **Type Polymorphism**: Multi-entity operations use explicit `type` discriminators (e.g., `switch` statements), not runtime reflection
+5. **Testing**: Test events written first, deployed to Lambda, tested on the platform.
+6. **Observability**: Structured logging via SLF4J in place, trace IDs present
 
 Amendments to this constitution require:
 - Documentation of rationale (in GitHub issue or PR)

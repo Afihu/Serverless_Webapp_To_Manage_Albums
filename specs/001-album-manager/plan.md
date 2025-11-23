@@ -31,7 +31,7 @@ A serverless web application for creating, managing, and organizing photo albums
 |-----------|-------------|--------|-------|
 | **I. AWS-First** | Lambda, S3, DynamoDB mandatory | ✅ PASS | Design uses all three services per diagram |
 | **II. Java + SDK v2** | Java 21+ with AWS SDK v2 only | ✅ PASS | Language/Dependencies specified above |
-| **III. One Maven Per Lambda** | Each Lambda = separate Maven module | ✅ PASS | See Project Structure below - 5 separate Lambda projects |
+| **III. One Maven Per Lambda** | Each Lambda = separate Maven module | ✅ PASS | See Project Structure below - 6 operation-based Lambda projects |
 | **IV. Test & Re-deployment** | Write test events first, deploy to AWS for testing | ✅ PASS | Testing strategy detailed in data-model phase |
 | **V. Observability** | SLF4J JSON logging to CloudWatch | ✅ PASS | Logging spec in constitution; all Lambdas include logging |
 
@@ -48,101 +48,129 @@ specs/001-album-manager/
 ├── research.md            # Phase 0 research findings (completed)
 ├── data-model.md          # Phase 1 data model (completed)
 ├── quickstart.md          # Phase 1 quick start guide (completed)
-├── contracts/             # Phase 1 API contracts (✅ COMPLETED)
-│   ├── CreateAlbum.yaml                # ✅ Decouple: Create album endpoint
-│   ├── ListAlbums.yaml                 # ✅ Decouple: List albums with pagination
-│   ├── GetUploadURL.yaml               # ✅ Decouple: Get presigned upload URL
-│   ├── UpdateImageMetadata.yaml        # ✅ Decouple: S3 event handler for metadata update
-│   ├── GetDownloadURL.yaml             # ✅ Decouple + Enhanced: Get presigned URL (original|thumbnail via query param)
-│   ├── DeleteImage.yaml                # ✅ Decouple: Delete photo endpoint
-│   ├── DeleteAlbum.yaml                # ✅ Decouple: Delete album endpoint
-│   └── UpdateAlbum.yaml                # ✅ Decouple: Update album metadata (name, description)
+├── contracts/             # Phase 1 API contracts (completed)
+│   ├── CreateAlbum.yaml                # /POST Create album endpoint
+│   ├── ListAlbums.yaml                 # /GET List albums with pagination
+│   ├── UploadImage.yaml               # /GET Get presigned upload URL
+│   ├── GetDownloadURL.yaml             # /GET Get presigned URL of an object for download/viewing
+│   ├── UpdateImageData.yaml        # /POST S3 event handler for metadata update
+│   ├── DeleteImage.yaml                # /DELETE Delete photo endpoint
+│   ├── DeleteAlbum.yaml                # /DELETE Delete album endpoint
+│   └── UpdateAlbum.yaml                # /POST Update album metadata (name, description)
 ├── openapi.yaml           # (deprecated) Master OpenAPI spec—replaced by individual contracts above
 └── checklists/
     └── requirements.md    # Specification validation (completed)
 ```
 
+## Structure Decision: 
+- Serverless web application with **6 operation-based Lambda functions** (one Maven project each) + 1 shared utility library + 1 event-driven function (ResizeImage). 
+- **Total of 8 Lambda functions**: 
+    - Core CRUD Operations (type-discriminated):
+        - `CreateEntryFunction` - Creates album or image (type: album | image)
+        - `ReadEntryFunction`   - Retrieves entry's info and generates presigned URLs (type: album | image)
+        - `UpdateEntryFunction` - Updates metadata for album or image (type: album | image)
+        - `DeleteEntryFunction` - Deletes album or image, with cascading cleanup (type: album | image)
+        - `ListEntriesFunction` - Lists albums or images with pagination (type: album | image)
+    - Event-Driven Processing:
+        - `ProcessImageFunction` (S3 event-triggered) - Resizes images, generates thumbnails, updates metadata
+    - Additional HTTP Endpoints:
+        - `GetUploadURLFunction` - Generates presigned S3 upload URLs (creates presigned POST)
+- Frontend served from S3 (static assets). 
+- **Type Discriminator Pattern**: Each operation Lambda accepts a `type` parameter to determine entity (album or image). This design:
+  - Maximizes code reuse across similar entity types
+  - Maintains operation-level scalability (can scale CreateEntry independently from DeleteEntry)
+  - Reduces boilerplate and duplicate error handling across the system
+- Shared layer contains: 
+    - Common models (Album, Image, Entry) 
+    - CRUD services (DynamoDBService, S3Service)
+    - Validation and error handling utilities
+    - Logging and observability helpers
+
 ### Source Code (repository root)
 
-Based on the system design diagram and constitution requirement (One Maven Per Lambda), the repository will have one Maven module per Lambda function plus shared infrastructure:
+Based on the operation-based architecture and constitution requirement (One Maven Per Lambda), the repository will have one Maven module per operation Lambda plus shared infrastructure:
 
 ```text
 ./src/
-├── create-album/                    # Maven module: CreateAlbumFunction
+├── create-entry/                    # Maven module: CreateEntryFunction
 │   ├── pom.xml
 │   ├── src/main/java/
 │   │   └── com/album/lambda/
-│   │       └── CreateAlbumHandler.java
+│   │       └── CreateEntryHandler.java
 │   ├── src/main/resources/
 │   │   └── logback.xml
 │   └── src/test/java/
 │       └── com/album/lambda/
-│           └── CreateAlbumHandlerTest.java
+│           └── CreateEntryHandlerTest.java
 │
-├── list-albums/                     # Maven module: ListAlbumsFunction
+├── read-entry/                      # Maven module: ReadEntryFunction
+│   ├── pom.xml
+│   │   # Handles /photos/{photoId}/presigned-download + /albums/{albumId}/photos
+│   ├── src/main/java/
+│   │   └── com/album/lambda/
+│   │       └── ReadEntryHandler.java
+│   ├── src/main/resources/
+│   │   └── logback.xml
+│   └── src/test/java/
+│
+├── update-entry/                    # Maven module: UpdateEntryFunction
+│   ├── pom.xml
+│   ├── src/main/java/
+│   ├── src/main/resources/
+│   │   └── logback.xml 
+│   └── src/test/java/
+│
+├── delete-entry/                    # Maven module: DeleteEntryFunction
+│   ├── pom.xml
+│   │   # Handles both HTTP DELETE + S3 event-triggered thumbnail cleanup
+│   ├── src/main/java/
+│   │   └── com/album/lambda/
+│   │       └── DeleteEntryHandler.java
+│   ├── src/main/resources/
+│   │   └── logback.xml
+│   └── src/test/java/
+│
+├── list-entries/                    # Maven module: ListEntriesFunction
 │   ├── pom.xml
 │   ├── src/main/java/
 │   │   └── com/album/lambda/
-│   │       └── ListAlbumsHandler.java
+│   │       └── ListEntriesHandler.java
 │   ├── src/main/resources/
+│   │   └── logback.xml
 │   └── src/test/java/
 │
 ├── get-upload-url/                  # Maven module: GetUploadURLFunction
 │   ├── pom.xml
 │   ├── src/main/java/
+│   │   └── com/album/lambda/
+│   │       └── GetUploadURLHandler.java
 │   ├── src/main/resources/
+│   │   └── logback.xml
 │   └── src/test/java/
 │
-├── update-image-data/               # Maven module: UpdateImageDataFunction
-│   ├── pom.xml
-│   ├── src/main/java/
-│   ├── src/main/resources/
-│   └── src/test/java/
-│
-├── resize-image/                    # Maven module: ResizeImageFunction
+├── process-image/                   # Maven module: ProcessImageFunction (S3 event-triggered)
 │   ├── pom.xml
 │   ├── src/main/java/
 │   │   └── com/album/lambda/
-│   │       └── ResizeImageHandler.java
+│   │       └── ProcessImageHandler.java
 │   ├── src/main/resources/
 │   │   ├── logback.xml
-│   │   └── resize-config.properties # Resize dimensions (512x512 WebP)
+│   │   └── process-image-config.properties # Resize dimensions (512x512 WebP)
 │   └── src/test/java/
 │       └── com/album/lambda/
-│           └── ResizeImageHandlerTest.java
-│
-├── get-download-url/                # Maven module: GetDownloadURLFunction
-│   ├── pom.xml
-│   ├── src/main/java/
-│   ├── src/main/resources/
-│   └── src/test/java/
-│
-├── delete-image/                    # Maven module: DeleteImageFunction
-│   ├── pom.xml
-│   ├── src/main/java/
-│   ├── src/main/resources/
-│   └── src/test/java/
-│
-├── delete-album/                    # Maven module: DeleteAlbumFunction
-│   ├── pom.xml
-│   ├── src/main/java/
-│   ├── src/main/resources/
-│   └── src/test/java/
-│
-├── update-album/                    # Maven module: UpdateAlbumFunction
-│   ├── pom.xml
-│   ├── src/main/java/
-│   ├── src/main/resources/
-│   └── src/test/java/
+│           └── ProcessImageHandlerTest.java
 │
 ├── shared-layer/                    # Shared utilities (Lambda Layer in .jar form)
 │   ├── pom.xml
 │   ├── src/main/java/
 │   │   └── com/album/
-│   │       ├── models/              # Album, Photo entities
+│   │       ├── models/              # Album, Image, Entry entities
 │   │       ├── services/            # DynamoDBService, S3Service, ImageProcessingService
-│   │       ├── util/                # Logging, Auth utils
-│   │       └── exception/           # Custom exceptions
+│   │       ├── util/                # Logging, Auth utils, TypeDiscriminator
+│   │       ├── exception/           # Custom exceptions
+│   │       └── handler/             # Base handler classes with common logic
+│   ├── src/main/resources/
+│   │   └── logback.xml
 │   └── src/test/java/
 │
 ├── frontend/                        # Static web assets (HTML/CSS/JS)
@@ -164,9 +192,27 @@ Based on the system design diagram and constitution requirement (One Maven Per L
     └── integration-tests.yml        # Run integration tests
 ```
 
-**Structure Decision**: 
-- Serverless web application with **8 independent Lambda functions** (one Maven project each) + 1 shared utility library (to be packaged as Lambda Layer or as a dependency) + 1 function triggered by S3 events (ResizeImage). 
-- **Total of 9 Lambda functions**: CreateAlbumFunction, ListAlbumsFunction, GetUploadURLFunction, UpdateImageDataFunction, ResizeImageFunction (S3 event-triggered), GetDownloadURLFunction, DeleteImageFunction, DeleteAlbumFunction, UpdateAlbumFunction
-- Frontend served from S3 (static assets). 
-- Each Lambda corresponds to a user action from the spec (create album, list albums, delete album, update album, etc.). 
-- Shared layer contains common models, services, and utilities to avoid code duplication across Lambda functions while maintaining independence per constitution.
+**Key Architectural Changes from Entity-Based to Operation-Based**:
+
+1. **Type Discriminator Pattern**: Each Lambda (except event-driven ones) uses a `type` parameter to determine entity behavior
+   ```java
+   // Example: CreateEntryHandler.java
+   public APIGatewayProxyResponseEvent handleRequest(CreateEntryRequest request) {
+       return switch (request.getType()) {
+           case ALBUM -> createAlbum(request);
+           case IMAGE -> createImage(request);
+           default -> errorResponse("Invalid type");
+       };
+   }
+   ```
+
+2. **Shared Layer Enhancements**:
+   - `TypeDiscriminator` utility for consistent type handling
+   - Base handler classes with common CRUD patterns
+   - Entry interface/superclass for polymorphic operations
+   - DynamoDBService with generic CRUD methods (create, read, update, delete)
+
+3. **Reduced Code Duplication**:
+   - Before: 9 Lambda modules with similar patterns
+   - After: 6 operation Lambdas + 1 event Lambda + shared layer
+   - Shared logic centralized in shared-layer
