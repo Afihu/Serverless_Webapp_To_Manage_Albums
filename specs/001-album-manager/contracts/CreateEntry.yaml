@@ -1,0 +1,290 @@
+openapi: 3.0.0
+info:
+  title: Create Entry
+  version: 2.0.0
+  description: |
+    Create a new album or image entry for the authenticated user.
+    
+    Uses a **type discriminator** pattern to handle both album and image creation.
+    Set `type: "album"` to create an album, or `type: "image"` to create an image entry.
+    
+    **Note**: This is part of the operation-based API contract structure. See `README.md` in this directory for the complete API overview.
+
+servers:
+  - url: <Placeholder for API Gateway URL>
+    description: Production API Gateway
+
+security:
+  - BearerAuth: []
+
+paths:
+  /albums:
+    post:
+      summary: Create Album
+      operationId: createAlbum
+      description: Create a new photo album for the authenticated user
+      tags:
+        - Albums
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEntryRequest'
+            examples:
+              album:
+                summary: Create Album Example
+                value:
+                  type: "album"
+                  albumName: "Family Trip 2025"
+                  description: "Summer vacation to Switzerland"
+      responses:
+        201:
+          description: Album created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Album'
+        400:
+          description: Invalid request (missing name, invalid type, duplicate name, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /albums/{albumId}/photos:
+    post:
+      summary: Create Image
+      operationId: createImage
+      description: Create a new image entry in an album
+      tags:
+        - Images
+      parameters:
+        - name: albumId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEntryRequest'
+            examples:
+              image:
+                summary: Create Image Example
+                value:
+                  type: "image"
+                  fileUrl: "s3://bucket-name/path/to/image.jpg"
+                  fileName: "vacation-photo-1.jpg"
+                  fileSize: 2097152
+                  fileFormat: "JPEG"
+      responses:
+        201:
+          description: Image entry created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+        400:
+          description: Invalid request (missing fields, invalid type, album not found, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        404:
+          description: Album not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from authentication provider
+
+  schemas:
+    CreateEntryRequest:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: ["album", "image"]
+          description: Entity type discriminator
+          example: "album"
+        # Album-specific fields
+        albumName:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Required for type=album
+          example: "Family Trip 2025"
+        description:
+          type: string
+          maxLength: 500
+          description: Optional for type=album
+          example: "Summer vacation to Switzerland"
+        # Image-specific fields
+        fileUrl:
+          type: string
+          format: uri
+          description: Required for type=image. S3 URI of the uploaded file
+          example: "s3://bucket-name/path/to/image.jpg"
+        fileName:
+          type: string
+          maxLength: 255
+          description: Required for type=image. Original filename
+          example: "vacation-photo-1.jpg"
+        fileSize:
+          type: integer
+          description: Required for type=image. File size in bytes
+          example: 2097152
+        fileFormat:
+          type: string
+          enum: ["JPEG", "PNG", "WebP", "GIF"]
+          description: Required for type=image. Image format
+          example: "JPEG"
+
+    Album:
+      type: object
+      required:
+        - albumId
+        - userId
+        - albumName
+        - createdAt
+        - updatedAt
+        - photoCount
+      properties:
+        albumId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        userId:
+          type: string
+          example: "auth0|user-123abc"
+        albumName:
+          type: string
+          maxLength: 255
+          example: "Family Trip 2025"
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+          example: "Summer vacation to Switzerland"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T14:45:00Z"
+        photoCount:
+          type: integer
+          minimum: 0
+          example: 0
+
+    Image:
+      type: object
+      required:
+        - photoId
+        - albumId
+        - userId
+        - fileName
+        - fileSize
+        - fileFormat
+        - uploadedAt
+        - s3Url
+      properties:
+        photoId:
+          type: string
+          format: uuid
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        albumId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        userId:
+          type: string
+          example: "auth0|user-123abc"
+        fileName:
+          type: string
+          maxLength: 255
+          example: "vacation-photo-1.jpg"
+        fileSize:
+          type: integer
+          example: 2097152
+        fileFormat:
+          type: string
+          enum: ["JPEG", "PNG", "WebP", "GIF"]
+          example: "JPEG"
+        uploadedAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T10:30:00Z"
+        s3Url:
+          type: string
+          format: uri
+          example: "s3://bucket-name/path/to/image.jpg"
+        thumbnailUrl:
+          type: string
+          format: uri
+          nullable: true
+          example: "s3://bucket-name/thumbnails/path/to/image-thumb.webp"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - NOT_FOUND
+                - UNAUTHORIZED
+                - FILE_TOO_LARGE
+                - INVALID_FORMAT
+                - INVALID_TYPE_DISCRIMINATOR
+                - INTERNAL_ERROR
+              example: "VALIDATION_ERROR"
+            message:
+              type: string
+              example: "Album name is required for type=album"
+            details:
+              type: object
+              nullable: true
+              example:
+                field: "albumName"
+                constraint: "NOT_EMPTY"
+                type: "album"

@@ -1,0 +1,346 @@
+openapi: 3.0.0
+info:
+  title: Read Entry
+  version: 2.0.0
+  description: |
+    Retrieve album or image details and generate presigned URLs for downloads/viewing.
+    
+    Handles multiple endpoints with overlapping semantics:
+    - `GET /albums/{albumId}` - Get album details
+    - `GET /albums/{albumId}/photos` - Get thumbnail gallery (batch retrieval)
+    - `POST /photos/{photoId}/presigned-download` - Get presigned URL for original or thumbnail
+    
+    **Note**: This is part of the operation-based API contract structure. See `README.md` in this directory for the complete API overview.
+
+servers:
+  - url: <Placeholder for API Gateway URL>
+    description: Production API Gateway
+
+security:
+  - BearerAuth: []
+
+paths:
+  /albums/{albumId}:
+    get:
+      summary: Get Album Details
+      operationId: getAlbumDetails
+      description: Get album metadata and info
+      tags:
+        - Albums
+      parameters:
+        - name: albumId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Album details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Album'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        404:
+          description: Album not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /albums/{albumId}/photos:
+    get:
+      summary: Get Thumbnail Gallery
+      operationId: getThumbnailGallery
+      description: Get presigned thumbnail URLs for all photos in album with pagination
+      tags:
+        - Images
+      parameters:
+        - name: albumId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+          description: Maximum number of photos to return per page
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of photos to skip for pagination
+      responses:
+        200:
+          description: Array of photos with presigned thumbnail URLs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThumbnailGallery'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        404:
+          description: Album not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /photos/{photoId}/presigned-download:
+    post:
+      summary: Get Download URL
+      operationId: getDownloadURL
+      description: Get presigned S3 URL for downloading a photo resource (original or thumbnail)
+      tags:
+        - Images
+      parameters:
+        - name: photoId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignedDownloadRequest'
+      responses:
+        200:
+          description: Presigned download URL generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignedDownloadResponse'
+        202:
+          description: Thumbnail generation in progress (only for resourceType=thumbnail)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThumbnailPendingResponse'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        404:
+          description: Photo or resource not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from authentication provider
+
+  schemas:
+    Album:
+      type: object
+      required:
+        - albumId
+        - userId
+        - albumName
+        - createdAt
+        - updatedAt
+        - photoCount
+      properties:
+        albumId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        userId:
+          type: string
+          example: "auth0|user-123abc"
+        albumName:
+          type: string
+          maxLength: 255
+          example: "Family Trip 2025"
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+          example: "Summer vacation to Switzerland"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T14:45:00Z"
+        photoCount:
+          type: integer
+          minimum: 0
+          example: 15
+
+    ThumbnailGallery:
+      type: object
+      required:
+        - albumId
+        - albumName
+        - photos
+        - photoCount
+        - total
+      properties:
+        albumId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        albumName:
+          type: string
+          maxLength: 255
+          example: "Family Trip 2025"
+        photos:
+          type: array
+          description: Array of photos with thumbnail URLs
+          items:
+            $ref: '#/components/schemas/PhotoThumbnail'
+        photoCount:
+          type: integer
+          description: Number of photos in this response
+          example: 50
+        total:
+          type: integer
+          description: Total number of photos in album (for pagination)
+          example: 150
+
+    PhotoThumbnail:
+      type: object
+      required:
+        - photoId
+        - fileName
+        - fileSize
+        - fileFormat
+        - uploadedAt
+        - thumbnailUrl
+      properties:
+        photoId:
+          type: string
+          format: uuid
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        fileName:
+          type: string
+          maxLength: 255
+          example: "vacation-photo-1.jpg"
+        fileSize:
+          type: integer
+          example: 2097152
+        fileFormat:
+          type: string
+          enum: ["JPEG", "PNG", "WebP", "GIF"]
+          example: "JPEG"
+        uploadedAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T10:30:00Z"
+        thumbnailUrl:
+          type: string
+          format: uri
+          description: Presigned S3 URL for thumbnail (valid for 15 minutes)
+          example: "https://s3.amazonaws.com/bucket/path/to/thumbnail?X-Amz-Signature=..."
+
+    PresignedDownloadRequest:
+      type: object
+      required:
+        - resourceType
+      properties:
+        resourceType:
+          type: string
+          enum: ["original", "thumbnail"]
+          default: "original"
+          description: Type of resource to download
+          example: "thumbnail"
+
+    PresignedDownloadResponse:
+      type: object
+      required:
+        - downloadUrl
+        - resourceType
+        - expiresIn
+      properties:
+        downloadUrl:
+          type: string
+          format: uri
+          description: Presigned S3 URL for requested resource (valid for 15 minutes)
+          example: "https://s3.amazonaws.com/bucket/path/to/image?X-Amz-Signature=..."
+        resourceType:
+          type: string
+          enum: ["original", "thumbnail"]
+          description: Type of resource for which the URL was generated
+          example: "thumbnail"
+        expiresIn:
+          type: integer
+          description: URL expiration time in seconds
+          example: 900
+
+    ThumbnailPendingResponse:
+      type: object
+      required:
+        - status
+        - resourceType
+        - message
+      properties:
+        status:
+          type: string
+          enum: ["pending"]
+          example: "pending"
+        resourceType:
+          type: string
+          example: "thumbnail"
+        message:
+          type: string
+          example: "Thumbnail generation in progress. Retry in a few seconds."
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - NOT_FOUND
+                - UNAUTHORIZED
+                - INTERNAL_ERROR
+              example: "NOT_FOUND"
+            message:
+              type: string
+              example: "Album not found"
+            details:
+              type: object
+              nullable: true

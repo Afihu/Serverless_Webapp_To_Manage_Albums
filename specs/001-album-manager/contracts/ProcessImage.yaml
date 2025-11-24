@@ -1,0 +1,197 @@
+openapi: 3.0.0
+info:
+  title: Process Image
+  version: 2.0.0
+  description: |
+    S3 event handler for asynchronous image processing.
+    
+    This is an **internal, event-driven Lambda function** that is NOT exposed via API Gateway.
+    It is triggered automatically by S3 object creation events and handles:
+    - Thumbnail generation (512x512 WebP)
+    - Metadata extraction
+    - DynamoDB metadata update
+    
+    **Note**: This is part of the operation-based API contract structure. See `README.md` in this directory for the complete API overview.
+
+servers:
+  - url: N/A (Event-driven, not HTTP)
+    description: S3 event-driven Lambda (internal only)
+
+paths:
+  /s3-event:
+    post:
+      summary: Process S3 Upload Event
+      operationId: processS3Event
+      description: |
+        Internal S3 event handler. Triggered automatically when images are uploaded to S3.
+        
+        **Not exposed via API Gateway - for documentation purposes only.**
+      tags:
+        - Internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/S3Event'
+      responses:
+        200:
+          description: Image processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessImageResponse'
+        400:
+          description: Invalid event format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Processing failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    S3Event:
+      type: object
+      required:
+        - Records
+      properties:
+        Records:
+          type: array
+          items:
+            $ref: '#/components/schemas/S3Record'
+          description: Array of S3 event records
+
+    S3Record:
+      type: object
+      required:
+        - s3
+        - eventName
+      properties:
+        eventName:
+          type: string
+          enum: ["ObjectCreated:Put", "ObjectCreated:Post", "ObjectCreated:Copy"]
+          example: "ObjectCreated:Put"
+        s3:
+          type: object
+          required:
+            - bucket
+            - object
+          properties:
+            bucket:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  example: "album-photos-bucket"
+            object:
+              type: object
+              required:
+                - key
+                - size
+              properties:
+                key:
+                  type: string
+                  description: S3 object key (path/to/original/image.jpg)
+                  example: "albums/550e8400-e29b-41d4-a716-446655440000/photos/image-001.jpg"
+                size:
+                  type: integer
+                  description: File size in bytes
+                  example: 2097152
+
+    ProcessImageResponse:
+      type: object
+      required:
+        - status
+        - photoId
+        - originalSize
+        - thumbnailSize
+        - processingTime
+      properties:
+        status:
+          type: string
+          enum: ["success"]
+          example: "success"
+        photoId:
+          type: string
+          format: uuid
+          description: ID of the processed photo
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        originalSize:
+          type: integer
+          description: Original file size in bytes
+          example: 2097152
+        thumbnailSize:
+          type: integer
+          description: Generated thumbnail size in bytes
+          example: 245760
+        thumbnailUrl:
+          type: string
+          format: uri
+          description: S3 path to generated thumbnail
+          example: "s3://album-photos-bucket/thumbnails/550e8400-e29b-41d4-a716-446655440000/photos/image-001-thumb.webp"
+        processingTime:
+          type: integer
+          description: Total processing time in milliseconds
+          example: 1250
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - INVALID_EVENT_FORMAT
+                - PROCESSING_FAILED
+                - S3_ACCESS_ERROR
+                - THUMBNAIL_GENERATION_FAILED
+                - METADATA_UPDATE_FAILED
+                - INTERNAL_ERROR
+              example: "PROCESSING_FAILED"
+            message:
+              type: string
+              example: "Failed to generate thumbnail for image"
+            details:
+              type: object
+              nullable: true
+              example:
+                photoId: "660e8400-e29b-41d4-a716-446655440001"
+                reason: "Image format not supported"
+
+    # Processing Configuration (for reference)
+    ProcessImageConfig:
+      type: object
+      description: Internal configuration for image processing
+      properties:
+        thumbnailDimensions:
+          type: string
+          description: Thumbnail size (width x height)
+          example: "512x512"
+        thumbnailFormat:
+          type: string
+          enum: ["WebP", "JPEG", "PNG"]
+          description: Output format for thumbnails
+          example: "WebP"
+        qualityLevel:
+          type: integer
+          description: JPEG/WebP quality (1-100)
+          example: 85
+        maxProcessingTime:
+          type: integer
+          description: Maximum processing timeout in milliseconds
+          example: 60000

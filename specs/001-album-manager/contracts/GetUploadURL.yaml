@@ -1,11 +1,14 @@
 openapi: 3.0.0
 info:
   title: Get Upload URL
-  version: 1.0.0
+  version: 2.0.0
   description: |
-    Get a presigned S3 URL for uploading a photo to an album.
+    Generate a presigned S3 POST URL for direct image uploads.
     
-    **Note**: This is part of the modular API contract structure. See `README.md` in this directory for the complete API overview and list of all contracts.
+    This endpoint allows clients to upload images directly to S3 without streaming through Lambda,
+    bypassing timeout and memory constraints for large files (up to 50 MB).
+    
+    **Note**: This is part of the operation-based API contract structure. See `README.md` in this directory for the complete API overview.
 
 servers:
   - url: <Placeholder for API Gateway URL>
@@ -15,13 +18,13 @@ security:
   - BearerAuth: []
 
 paths:
-  /albums/{albumId}/presigned-upload:
+  /albums/{albumId}/photos/presigned-upload:
     post:
-      summary: Get Upload URL
-      operationId: getUploadURL
-      description: Get a presigned S3 URL for uploading a photo to an album
+      summary: Get Presigned Upload URL
+      operationId: getPresignedUploadURL
+      description: Generate a presigned S3 URL for direct image upload
       tags:
-        - Photos
+        - Images
       parameters:
         - name: albumId
           in: path
@@ -29,63 +32,45 @@ paths:
           schema:
             type: string
             format: uuid
-          example: "550e8400-e29b-41d4-a716-446655440000"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - fileName
-                - fileSize
-                - mimeType
-              properties:
-                fileName:
-                  type: string
-                  maxLength: 255
-                  example: "sunset_beach.jpg"
-                fileSize:
-                  type: integer
-                  minimum: 1
-                  maximum: 52428800
-                  example: 2048576
-                mimeType:
-                  type: string
-                  enum: ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic"]
-                  example: "image/jpeg"
+              $ref: '#/components/schemas/GetUploadURLRequest'
       responses:
         200:
-          description: Presigned upload URL generated
+          description: Presigned upload URL generated successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  uploadUrl:
-                    type: string
-                    format: uri
-                    description: Presigned S3 URL (valid for 15 minutes)
-                  photoId:
-                    type: string
-                    format: uuid
-                    description: Unique identifier for this photo
-                  expiresIn:
-                    type: integer
-                    description: URL expiration time in seconds
-                    example: 900
+                $ref: '#/components/schemas/GetUploadURLResponse'
         400:
-          description: Invalid request (file too large, invalid MIME type, etc.)
+          description: Invalid request (missing fields, invalid format, etc.)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         401:
-          description: Unauthorized
+          description: Unauthorized - missing or invalid JWT token
         404:
           description: Album not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        413:
+          description: File too large (max 50 MB)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         500:
           description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
 components:
   securitySchemes:
@@ -96,6 +81,62 @@ components:
       description: JWT token from authentication provider
 
   schemas:
+    GetUploadURLRequest:
+      type: object
+      required:
+        - fileName
+        - fileSize
+        - fileFormat
+      properties:
+        fileName:
+          type: string
+          maxLength: 255
+          description: Original filename (e.g., "vacation-photo.jpg")
+          example: "vacation-photo-1.jpg"
+        fileSize:
+          type: integer
+          maximum: 52428800
+          description: File size in bytes (max 50 MB = 52,428,800 bytes)
+          example: 2097152
+        fileFormat:
+          type: string
+          enum: ["JPEG", "PNG", "WebP", "GIF"]
+          description: Image format (validates file type)
+          example: "JPEG"
+
+    GetUploadURLResponse:
+      type: object
+      required:
+        - photoId
+        - uploadUrl
+        - expiresIn
+        - uploadMethod
+        - maxFileSize
+      properties:
+        photoId:
+          type: string
+          format: uuid
+          description: Pre-generated photo ID (created in DynamoDB immediately)
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        uploadUrl:
+          type: string
+          format: uri
+          description: Presigned S3 POST URL (valid for 15 minutes)
+          example: "https://s3.amazonaws.com/album-bucket/"
+        expiresIn:
+          type: integer
+          description: URL expiration time in seconds
+          example: 900
+        uploadMethod:
+          type: string
+          enum: ["POST"]
+          description: HTTP method to use for upload
+          example: "POST"
+        maxFileSize:
+          type: integer
+          description: Maximum file size allowed in bytes
+          example: 52428800
+
     ErrorResponse:
       type: object
       required:
@@ -119,7 +160,10 @@ components:
               example: "VALIDATION_ERROR"
             message:
               type: string
-              example: "File size exceeds 50 MB limit"
+              example: "File size exceeds maximum of 50 MB"
             details:
               type: object
               nullable: true
+              example:
+                maxSize: 52428800
+                requestedSize: 104857600

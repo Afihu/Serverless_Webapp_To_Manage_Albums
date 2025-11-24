@@ -1,0 +1,269 @@
+openapi: 3.0.0
+info:
+  title: List Entries
+  version: 2.0.0
+  description: |
+    List albums or images with pagination support.
+    
+    Uses a **type discriminator** pattern:
+    - `type=album`: Lists all albums for the authenticated user
+    - `type=image`: Lists all images in a specific album (requires albumId parameter)
+    
+    **Note**: This is part of the operation-based API contract structure. See `README.md` in this directory for the complete API overview.
+
+servers:
+  - url: <Placeholder for API Gateway URL>
+    description: Production API Gateway
+
+security:
+  - BearerAuth: []
+
+paths:
+  /albums:
+    get:
+      summary: List Albums
+      operationId: listAlbums
+      description: Get all albums for the authenticated user with pagination
+      tags:
+        - Albums
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+          description: Maximum number of albums to return per page
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of albums to skip for pagination
+      responses:
+        200:
+          description: Array of albums
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlbumList'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /albums/{albumId}/photos:
+    get:
+      summary: List Images in Album
+      operationId: listImagesInAlbum
+      description: Get all images in a specific album with pagination
+      tags:
+        - Images
+      parameters:
+        - name: albumId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+          description: Maximum number of images to return per page
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of images to skip for pagination
+      responses:
+        200:
+          description: Array of images in album
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageList'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        404:
+          description: Album not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from authentication provider
+
+  schemas:
+    AlbumList:
+      type: object
+      required:
+        - albums
+        - total
+        - limit
+        - offset
+      properties:
+        albums:
+          type: array
+          description: Array of albums in this response
+          items:
+            $ref: '#/components/schemas/AlbumSummary'
+        total:
+          type: integer
+          description: Total number of albums for the user
+          example: 25
+        limit:
+          type: integer
+          description: Requested limit (pagination page size)
+          example: 50
+        offset:
+          type: integer
+          description: Requested offset (pagination position)
+          example: 0
+
+    AlbumSummary:
+      type: object
+      required:
+        - albumId
+        - albumName
+        - description
+        - createdAt
+        - updatedAt
+        - photoCount
+      properties:
+        albumId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        albumName:
+          type: string
+          maxLength: 255
+          example: "Family Trip 2025"
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+          example: "Summer vacation to Switzerland"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T14:45:00Z"
+        photoCount:
+          type: integer
+          minimum: 0
+          description: Number of photos in this album
+          example: 15
+
+    ImageList:
+      type: object
+      required:
+        - albumId
+        - images
+        - total
+        - limit
+        - offset
+      properties:
+        albumId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        images:
+          type: array
+          description: Array of images in this response
+          items:
+            $ref: '#/components/schemas/ImageSummary'
+        total:
+          type: integer
+          description: Total number of images in the album
+          example: 150
+        limit:
+          type: integer
+          description: Requested limit (pagination page size)
+          example: 50
+        offset:
+          type: integer
+          description: Requested offset (pagination position)
+          example: 0
+
+    ImageSummary:
+      type: object
+      required:
+        - photoId
+        - fileName
+        - fileSize
+        - fileFormat
+        - uploadedAt
+      properties:
+        photoId:
+          type: string
+          format: uuid
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        fileName:
+          type: string
+          maxLength: 255
+          example: "vacation-photo-1.jpg"
+        fileSize:
+          type: integer
+          example: 2097152
+        fileFormat:
+          type: string
+          enum: ["JPEG", "PNG", "WebP", "GIF"]
+          example: "JPEG"
+        uploadedAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T10:30:00Z"
+        tags:
+          type: array
+          items:
+            type: string
+          example: ["mountain", "sunset"]
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - NOT_FOUND
+                - UNAUTHORIZED
+                - INTERNAL_ERROR
+              example: "NOT_FOUND"
+            message:
+              type: string
+              example: "Album not found"
+            details:
+              type: object
+              nullable: true

@@ -1,12 +1,14 @@
 openapi: 3.0.0
-
 info:
-  title: Delete Album
-  version: 1.0.0
+  title: Delete Entry
+  version: 2.0.0
   description: |
-    Delete an entire album and all its associated photos.
+    Delete an album or image.
     
-    **Note**: This is part of the modular API contract structure. See `README.md` in this directory for the complete API overview and list of all contracts.
+    - For `type=album`: Deletes the album and cascades to delete all associated images from S3 and DynamoDB
+    - For `type=image`: Deletes the image from DynamoDB and S3 (both original and thumbnail)
+    
+    **Note**: This is part of the operation-based API contract structure. See `README.md` in this directory for the complete API overview.
 
 servers:
   - url: <Placeholder for API Gateway URL>
@@ -20,7 +22,7 @@ paths:
     delete:
       summary: Delete Album
       operationId: deleteAlbum
-      description: Delete an entire album and all its associated photos (removes from DynamoDB and S3)
+      description: Delete an entire album and all its photos from S3 and DynamoDB
       tags:
         - Albums
       parameters:
@@ -33,16 +35,48 @@ paths:
       responses:
         204:
           description: Album deleted successfully
-        400:
-          description: Invalid request (album not found, album ID malformed, etc.)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
         401:
           description: Unauthorized - missing or invalid JWT token
         404:
           description: Album not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /albums/{albumId}/photos/{photoId}:
+    delete:
+      summary: Delete Image
+      operationId: deleteImage
+      description: Delete a photo from an album (removes from S3 and DynamoDB)
+      tags:
+        - Images
+      parameters:
+        - name: albumId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: photoId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        204:
+          description: Photo deleted successfully
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        404:
+          description: Photo or album not found
           content:
             application/json:
               schema:
@@ -88,5 +122,3 @@ components:
             details:
               type: object
               nullable: true
-              example:
-                albumId: "550e8400-e29b-41d4-a716-446655440000"

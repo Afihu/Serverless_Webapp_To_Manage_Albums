@@ -1,0 +1,279 @@
+openapi: 3.0.0
+info:
+  title: Update Entry
+  version: 2.0.0
+  description: |
+    Update album or image metadata.
+    
+    Uses a **type discriminator** pattern to determine whether updating an album or image.
+    
+    **Note**: This is part of the operation-based API contract structure. See `README.md` in this directory for the complete API overview.
+
+servers:
+  - url: <Placeholder for API Gateway URL>
+    description: Production API Gateway
+
+security:
+  - BearerAuth: []
+
+paths:
+  /albums/{albumId}:
+    put:
+      summary: Update Album
+      operationId: updateAlbum
+      description: Update album metadata (name, description)
+      tags:
+        - Albums
+      parameters:
+        - name: albumId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEntryRequest'
+            examples:
+              album:
+                summary: Update Album Example
+                value:
+                  type: "album"
+                  albumName: "Family Trip 2025 - Updated"
+                  description: "Summer vacation to Switzerland and Italy"
+      responses:
+        200:
+          description: Album updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Album'
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        404:
+          description: Album not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /photos/{photoId}/metadata:
+    put:
+      summary: Update Image Metadata
+      operationId: updateImageMetadata
+      description: Update image metadata (tags, custom fields)
+      tags:
+        - Images
+      parameters:
+        - name: photoId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEntryRequest'
+            examples:
+              image:
+                summary: Update Image Metadata Example
+                value:
+                  type: "image"
+                  tags: ["mountain", "sunset", "vacation"]
+                  customMetadata:
+                    camera: "Canon EOS R5"
+                    iso: 400
+      responses:
+        200:
+          description: Image metadata updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        401:
+          description: Unauthorized - missing or invalid JWT token
+        404:
+          description: Photo not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from authentication provider
+
+  schemas:
+    UpdateEntryRequest:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: ["album", "image"]
+          description: Entity type discriminator
+          example: "album"
+        # Album-specific fields
+        albumName:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Optional for type=album
+          example: "Family Trip 2025 - Updated"
+        description:
+          type: string
+          maxLength: 500
+          description: Optional for type=album
+          example: "Summer vacation to Switzerland and Italy"
+        # Image-specific fields
+        tags:
+          type: array
+          items:
+            type: string
+          maxItems: 20
+          description: Optional for type=image. Photo tags
+          example: ["mountain", "sunset", "vacation"]
+        customMetadata:
+          type: object
+          description: Optional for type=image. Custom metadata key-value pairs
+          example:
+            camera: "Canon EOS R5"
+            iso: 400
+
+    Album:
+      type: object
+      required:
+        - albumId
+        - userId
+        - albumName
+        - createdAt
+        - updatedAt
+      properties:
+        albumId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        userId:
+          type: string
+          example: "auth0|user-123abc"
+        albumName:
+          type: string
+          maxLength: 255
+          example: "Family Trip 2025 - Updated"
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T14:45:00Z"
+
+    Image:
+      type: object
+      required:
+        - photoId
+        - albumId
+        - userId
+        - fileName
+        - uploadedAt
+      properties:
+        photoId:
+          type: string
+          format: uuid
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        albumId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        userId:
+          type: string
+          example: "auth0|user-123abc"
+        fileName:
+          type: string
+          maxLength: 255
+          example: "vacation-photo-1.jpg"
+        tags:
+          type: array
+          items:
+            type: string
+          example: ["mountain", "sunset", "vacation"]
+        customMetadata:
+          type: object
+          example:
+            camera: "Canon EOS R5"
+            iso: 400
+        uploadedAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-11-24T14:45:00Z"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - NOT_FOUND
+                - UNAUTHORIZED
+                - INVALID_TYPE_DISCRIMINATOR
+                - INTERNAL_ERROR
+              example: "VALIDATION_ERROR"
+            message:
+              type: string
+              example: "Album name must be at least 1 character"
+            details:
+              type: object
+              nullable: true

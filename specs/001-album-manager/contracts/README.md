@@ -1,51 +1,125 @@
 # API Contracts - Photo Album Manager
 
-**Version**: 1.0.0  
-**Last Updated**: 2025-11-17
+**Version**: 2.0.0 (Operation-Based Architecture)  
+**Last Updated**: 2025-11-24
 
 ## Overview
 
-As of v1.0.0, the Photo Album Manager API uses a **modular, decoupled contract structure** where each endpoint has its own dedicated OpenAPI specification file for better maintainability, clarity, and future extensibility.
+As of v2.0.0, the Photo Album Manager API has been refactored to use **operation-based Lambda functions** rather than entity-specific ones. Each operation (Create, Read, Update, Delete, List) is handled by a single Lambda function that accepts a `type` discriminator parameter to determine whether it's operating on an `album` or `image` entity.
 
-## Contract Files
+This design:
+- Maximizes code reuse across similar entity types
+- Maintains operation-level scalability
+- Reduces boilerplate and duplicate error handling
+- Is compatible with GraalVM native image compilation
 
-| Contract | Purpose | Endpoint | Lambda Function |
-|----------|---------|----------|-----------------|
-| `CreateAlbum.yaml` | Create a new photo album | `POST /albums` | CreateAlbumFunction |
-| `ListAlbums.yaml` | List all albums for user | `GET /albums` | ListAlbumsFunction |
-| `GetUploadURL.yaml` | Get presigned S3 upload URL | `POST /albums/{albumId}/photos/presigned-upload` | GetUploadURLFunction |
-| `GetThumbnails.yaml` | Get array of presigned S3 URLs for batch of thumbnails | `GET /albums/{albumId}/photos` | GetDownloadURLFunction |
-| `GetOriginalImage.yaml` | Get presigned S3 URL for original full-resolution image | `GET /albums/{albumId}/photos/{photoId}` | GetDownloadURLFunction |
-| `UpdateImageMetadata.yaml` | Update photo metadata (S3 event handler) | `PUT /photos/{photoId}/metadata` (internal) | UpdateImageDataFunction |
-| `UpdateAlbum.yaml` | Update album metadata (name, description) | `PUT /albums/{albumId}` | UpdateAlbumFunction |
-| `DeleteAlbum.yaml` | Delete entire album and all its photos | `DELETE /albums/{albumId}` | DeleteAlbumFunction |
-| `DeleteImage.yaml` | Delete a photo | `DELETE /albums/{albumId}/photos/{photoId}` | DeleteImageFunction |
+## Contract Files & Mappings
 
-## Key Features
+| Contract | Purpose | Endpoints | Lambda Function | Type Discriminator |
+|----------|---------|-----------|-----------------|-------------------|
+| `CreateEntry.yaml` | Create album or image | `POST /albums` (album) | `create-entry` | `type: album \| image` |
+| | | `POST /albums/{albumId}/photos` (image) | | |
+| `ReadEntry.yaml` | Get entry details & presigned URLs | `GET /albums/{albumId}` (album) | `read-entry` | `type: album \| image` |
+| | | `GET /albums/{albumId}/photos` (thumbnails) | | |
+| | | `POST /photos/{photoId}/presigned-download` (original/thumbnail) | | |
+| `UpdateEntry.yaml` | Update album or image metadata | `PUT /albums/{albumId}` (album) | `update-entry` | `type: album \| image` |
+| | | `PUT /photos/{photoId}/metadata` (image) | | |
+| `DeleteEntry.yaml` | Delete album or image | `DELETE /albums/{albumId}` (album) | `delete-entry` | `type: album \| image` |
+| | | `DELETE /albums/{albumId}/photos/{photoId}` (image) | | |
+| `ListEntries.yaml` | List albums or images with pagination | `GET /albums` (albums) | `list-entries` | `type: album \| image` |
+| | | `GET /albums/{albumId}/photos` (images in album) | | |
+| `GetUploadURL.yaml` | Generate presigned S3 upload URL | `POST /albums/{albumId}/photos/presigned-upload` | `get-upload-url` | N/A (image only) |
+| `ProcessImage.yaml` | S3 event: resize & generate thumbnails | S3 bucket event (internal) | `process-image` | N/A (event-driven) |
 
-- **Modular Design**: Each endpoint is independently documented and versioned
-- **Single Responsibility**: Each contract file focuses on one operation
-- **Easier Maintenance**: Changes to one endpoint don't require touching others
-- **Clear Dependencies**: Cross-references to related contracts are explicit
-- **Consolidated GetDownloadURL**: Both `GetThumbnails` and `GetOriginalImage` endpoints are backed by a single `GetDownloadURLFunction` Lambda, optimizing code reuse while maintaining clear REST semantics
-- **Presigned URL Architecture**: Endpoints return presigned URLs; clients access S3 directly without additional Lambda invocations
-- **Schema Reusability**: Common schemas (Album, Photo, ErrorResponse) are duplicated for independence; consider extracting to shared `components.yaml` if needed in future versions
+## Type Discriminator Pattern
 
-## How to Use
+All CreateEntry, ReadEntry, UpdateEntry, DeleteEntry, and ListEntries functions use a `type` parameter in the request to determine entity behavior:
 
-1. **For Implementation**: Refer to the specific contract file for each Lambda handler
-2. **For API Gateway**: Import each contract or aggregate them into a single OpenAPI spec
-3. **For Integration Testing**: Use the contract file to generate test cases
+```json
+// Example: CreateEntry request
+{
+  "type": "album",
+  "albumName": "Family Trip 2025",
+  "description": "Summer vacation"
+}
+
+// OR
+
+{
+  "type": "image",
+  "albumId": "550e8400-e29b-41d4-a716-446655440000",
+  "fileUrl": "s3://bucket/path/image.jpg"
+}
+```
+
+Valid type values:
+- `album` - Album entity
+- `image` - Photo/Image entity
+
+## Key Architectural Changes from v1.0.0
+
+- **From**: 9 entity-specific Lambda functions (CreateAlbum, DeleteAlbum, CreateImage, etc.)
+- **To**: 7 operation-based Lambda functions (CreateEntry, ReadEntry, UpdateEntry, DeleteEntry, ListEntries, GetUploadURL, ProcessImage)
+- **Routing**: HTTP requests route to a single Lambda per operation; the `type` discriminator determines entity handling
+- **GetDownloadURL Consolidation**: Merged into `ReadEntry` for album info + image retrieval
+- **Event-Driven Processing**: `process-image` handles S3 events asynchronously for thumbnail generation
+
+## Security
+
+All endpoints (except `ProcessImage`, which is S3-event-driven) require JWT authentication via the `Authorization: Bearer <token>` header.
+
+```yaml
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+```
 
 ## Integration with API Gateway
 
-To deploy this API on AWS API Gateway:
-- Import each contract file individually, or
-- Aggregate all contracts into a single OpenAPI spec (see `openapi.yaml` template for reference structure)
+### Option 1: Individual Contract Import
+Import each contract file separately into API Gateway and route to the corresponding Lambda function.
+
+### Option 2: Aggregated Specification
+Combine all contracts into a single OpenAPI spec for bulk import:
+```yaml
+# master-openapi.yaml
+openapi: 3.0.0
+info:
+  title: Photo Album Manager API
+  version: 2.0.0
+paths:
+  /albums:
+    post:
+      # ... (from CreateEntry.yaml)
+    get:
+      # ... (from ListEntries.yaml)
+  /albums/{albumId}:
+    get:
+      # ... (from ReadEntry.yaml - album details)
+    put:
+      # ... (from UpdateEntry.yaml - album update)
+    delete:
+      # ... (from DeleteEntry.yaml - album delete)
+  # ... etc
+```
+
+## Contract Versioning
+
+Contracts follow semantic versioning tied to the API:
+- **Patch (x.x.Z)**: Bug fixes, documentation updates
+- **Minor (x.Y.0)**: New fields, new optional parameters, backward compatible
+- **Major (X.0.0)**: Breaking changes (e.g., type discriminator enum changes, endpoint removal)
 
 ## Future Enhancements
 
-- Extract common schemas (`Album`, `Photo`, `ErrorResponse`) into a shared `components.yaml`
-- Add security scheme definitions to a separate file
-- Implement contract versioning (e.g., `v1.0.0/`, `v2.0.0/`)
-- Add request/response examples for each contract
+- Extract common schemas (`Album`, `Image`, `ErrorResponse`) into shared `components.yaml`
+- Add request/response examples for each type discriminator value
+- Implement contract versioning in URL paths (e.g., `/v2/albums`)
+- Add rate limiting and pagination metadata to responses
+- Document error handling for type discriminator mismatches
