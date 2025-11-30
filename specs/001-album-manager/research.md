@@ -1,4 +1,4 @@
-# Research Phase: Photo Album Manager
+# Research Phase: Image Album Manager
 
 **Created**: 2025-11-08  
 **Input**: Technical Context from plan.md + System Design Diagram  
@@ -14,35 +14,36 @@
 
 **Rationale**:
 - **Constitution Principle III**: "One Maven Project Per Lambda" ensures isolated dependency management, independent versioning, and clean deployment boundaries
-- **User Story Alignment**: Each Lambda maps directly to a user action (create album, upload, download, delete, etc.), except for the new ResizeImageFunction triggered by S3 events.
+- **User Story Alignment**: Each Lambda maps directly to a functionality (create, upload, download, delete, etc.) which can then be used for each use case, except for the ProcessImage triggered by S3 events.
 - **Scalability**: Each function can be optimized, versioned, and deployed independently
-- **Maintainability**: Clear separation of concerns - each handler is focused on a single responsibility
+- **Maintainability**: Clear separation of concerns - each handler is focused on a single functionality
 
 **Alternatives Considered**:
 1. **REJECTED** Monolithic Lambda with all handlers (System per Lambda) - Violates constitution, creates hidden coupling
 2. **REJECTED** Multiple handlers per Maven project - Easier initial development but harder to scale and version independently
-3. ✅ **SELECTED**: One Maven project per Lambda function
+3. **REJECTED**: One Lambda per operation on entity (e.g., CreateAlbum, ListAlbums, GetAlbum, etc.) - Too granular, leads to excessive Lambdas and code duplication. 
+4. ✅ **SELECTED**: One Maven project per Lambda function with each handling a specific functionality aligned to user stories.
 
 **Lambda Functions**:
 
 | # | Lambda Function | User Story | Trigger | Notes |
 |---|-----------------|------------|---------|-------|
-| 1 | CreateAlbumFunction | US1 | API Gateway POST /albums | Creates album record in DynamoDB with SK: `ALBUM#{albumId}` |
-| 2 | ListAlbumsFunction | US1 | API Gateway GET /albums | Queries DynamoDB: `Query(PK=userId, SK begins_with "ALBUM#")` |
-| 3 | GetUploadURLFunction | US2 | API Gateway POST /albums/{id}/presigned-upload | Returns presigned S3 upload URL |
-| 4 | UpdateImageDataFunction | US2 | S3 event (after upload completes) | Updates photo metadata with SK: `PHOTO#{albumId}#{photoId}`, triggers thumbnail generation |
-| 5 | GetDownloadURLFunction | US3 | API Gateway POST /photos/{id}/presigned-download | Returns presigned S3 download URL |
-| 6 | DeleteImageFunction | US4 | API Gateway DELETE /photos/{id} | Deletes photo record from DynamoDB (SK: `PHOTO#...`) and S3 objects |
-
+| 1 | CreateEntryFunction | US1 + US3 | API Gateway POST | Creates album record in DynamoDB with SK: `ALBUM#{albumId}` |
+| 2 | ListEntriesFunction | US1 + US3 | API Gateway GET | Queries DynamoDB: `Query(PK=userId, SK begins_with "ALBUM#")` |
+| 3 | ReadEntryFunction | US1 + US3 | API Gateway POST | Returns presigned S3 download URL |
+| 4 | GetUploadURLFunction | US2 | API Gateway POST | Returns presigned S3 upload URL |
+| 5 | UpdateEntryFunction | US2 | API Gateway POST or S3 event (after upload completes) | Updates image metadata with SK: `IMAGE#{albumId}#{imageId}`, triggers thumbnail generation |
+| 6 | GetDownloadURLFunction | US3 | API Gateway POST | Returns presigned S3 download URL |
+| 7 | DeleteEntryFunction | US4 | API Gateway DELETE | Deletes image record from DynamoDB (SK: `IMAGE#...`) and S3 objects |
 ---
 
 ### 2. Storage Architecture
 
-**Decision**: S3 for photos + thumbnails, single DynamoDB table with type-prefixed sort keys for all metadata
+**Decision**: S3 for images + thumbnails, single DynamoDB table with type-prefixed sort keys for all metadata
 
 **Rationale**:
-- **S3 for Photos**: Designed for large binary objects, built-in scalability, native support for presigned URLs, lifecycle policies
-- **Single DynamoDB Table**: Simplified operations, efficient range queries via type-prefixed sort keys (`ALBUM#` and `PHOTO#`), no cross-table operations, reduced latency
+- **S3 for Images**: Designed for large binary objects, built-in scalability, native support for presigned URLs, lifecycle policies
+- **Single DynamoDB Table**: Simplified operations, efficient range queries via type-prefixed sort keys (`ALBUM#` and `IMAGE#`), no cross-table operations, reduced latency
 - **Type-Prefixed Sort Keys**: Enable efficient queries per entity type while keeping data in one table
 
 **DynamoDB Single Table Design**:
@@ -50,7 +51,7 @@
 Table:  albums
 PK:     userId              # All records partitioned by user
 SK:     ALBUM#{id}          # Album records
-        PHOTO#{albId}#{id}  # Photo records
+        IMAGE#{albId}#{id}  # Image records
 ```
 
 **S3 Structure** (aligned with DynamoDB):
@@ -59,13 +60,13 @@ albums-prod/
 ├── {userId}/ALBUM#{albumId}/original/{fileName}
 
 image-thumbnails/
-├── {userId}/PHOTO#{albumId}#{photoId}/thumb-512.webp
+├── {userId}/IMAGE#{albumId}#{imageId}/thumb-256.webp
 ```
 
 **Query Patterns**:
 - All albums: `Query(userId, "ALBUM#")`
-- Album photos: `Query(userId, "PHOTO#{albumId}#")`
-- Specific item: `GetItem(userId, "ALBUM#id")` or `GetItem(userId, "PHOTO#albId#id")`
+- Album images: `Query(userId, "IMAGE#{albumId}#")`
+- Specific item: `GetItem(userId, "ALBUM#id")` or `GetItem(userId, "IMAGE#albId#id")`
 
 ---
 
@@ -76,34 +77,34 @@ image-thumbnails/
 **Rationale**:
 - **Lambda Timeout Limitation**: Lambda has 15-minute max execution. Large file uploads handled via presigned URL bypass this (browser uploads directly to S3)
 - **Cost Efficiency**: Avoids streaming large files through Lambda (expensive memory + compute time)
-- **Event-Driven**: S3 triggers `ResizeImageFunction` when upload completes → generates thumbnail, updates DynamoDB with SK: `PHOTO#{albumId}#{photoId}`
+- **Event-Driven**: S3 triggers `ResizeImageFunction` when upload completes → generates thumbnail, updates DynamoDB with SK: `IMAGE#{albumId}#{imageId}`
 - **Scalability**: S3 handles concurrent uploads natively; Lambda processes asynchronously
 
 **Flow**:
-1. User clicks "Upload Photo" → Browser calls `GetUploadURLFunction`
+1. User clicks "Upload Image" → Browser calls `GetUploadURLFunction`
 2. Lambda returns presigned URL (valid 15 minutes) pointing to `{userId}/ALBUM#{albumId}/original/{fileName}`
 3. Browser uploads directly to S3 (bypasses Lambda)
 4. S3 fires event → triggers `ResizeImageFunction`
-5. Lambda generates 512×512 WebP thumbnail, stores in `image-thumbnails` bucket at `{userId}/PHOTO#{albumId}#{photoId}/thumb-512.webp`
-6. Lambda updates DynamoDB photo record with `resizeStatus: COMPLETED`
+5. Lambda generates 256x256 WebP thumbnail, stores in `image-thumbnails` bucket at `{userId}/IMAGE#{albumId}#{imageId}/thumb-256.webp`
+6. Lambda updates DynamoDB image record with `resizeStatus: COMPLETED`
 
 ---
 
 ### 4. Thumbnail Generation
 
-**Decision**: Asynchronous in `ResizeImageFunction` triggered by S3 event, storing 512×512 WebP thumbnail in dedicated bucket
+**Decision**: Asynchronous in `ResizeImageFunction` triggered by S3 event, storing 256x256 WebP thumbnail in dedicated bucket
 
 **Rationale**:
-- **Optimized Scope**: Single WebP thumbnail (512×512) provides excellent quality and compression
-- **Eventual Consistency**: Photo appears in album list with thumbnail within ~3 seconds
+- **Optimized Scope**: Single WebP thumbnail (256x256) provides excellent quality and compression
+- **Eventual Consistency**: Image appears in album list with thumbnail within ~3 seconds
 - **Separation of Concerns**: Dedicated `image-thumbnails` bucket for organized storage
 - **Constitution Alignment**: No external services - all AWS SDK v2
 
 **Approach**:
-- S3 event triggers ResizeImageFunction when photo uploaded to albums-prod
-- Lambda generates single 512×512 WebP thumbnail (quality 90)
-- Store in image-thumbnails bucket at `{userId}/{albumId}/{photoId}/thumb-512.webp`
-- Update DynamoDB photo record with `resizeStatus: COMPLETED`
+- S3 event triggers ResizeImageFunction when image uploaded to albums-prod
+- Lambda generates single 256x256 WebP thumbnail (quality 90)
+- Store in image-thumbnails bucket at `{userId}/{albumId}/{imageId}/thumb-256.webp`
+- Update DynamoDB image record with `resizeStatus: COMPLETED`
 - Client fetches thumbnail via presigned URL
 
 ---
@@ -155,11 +156,11 @@ test-events/
 
 ### 6. Authentication & Authorization
 
-**Decision**: API Gateway with JWT tokens (or Lambda authorizer for future extensibility)
-
+**Decision**: API Gateway with AWS Cognito (This is a future enhancement, currently assuming the system is a trusted environment and single-tenant for MVP)
+  
 **Rationale**:
-- **Simplicity**: API Gateway handles auth validation before reaching Lambda
-- **Security**: No hardcoded secrets in Lambda; use AWS Secrets Manager or environment variables
+- **Simplicity**: API Gateway + Cognito handles auth validation before reaching Lambda
+- **Security**: No hardcoded secrets in Lambda; use environment variables for bucket names and table names
 - **Extensibility**: Lambda Authorizer can support OAuth2/OIDC later
 
 **Approach**:
@@ -258,7 +259,7 @@ Lambda Layer: album-manager-layer
 │   ├── software.amazon.awssdk:*.jar (AWS SDK v2 modules)
 │   ├── org.slf4j:slf4j-api-*.jar
 │   ├── ch.qos.logback:logback-*.jar
-│   └── shared-layer.jar (Album, Photo models; DynamoDBService; S3Service; utilities)
+│   └── shared-layer.jar (Album, Image models; DynamoDBService; S3Service; utilities)
 ```
 
 **Lambda Layer Deployment**:
@@ -278,8 +279,8 @@ Lambda Layer: album-manager-layer
 **Pattern**:
 
 ```
-CreateAlbumFunction
-├── Role: CreateAlbumLambdaExecutionRole
+CreateEntryFunction
+├── Role: CreateEntryLambdaExecutionRole
 │   ├── Policy: DynamoDB (albums table)
 │   │   ├── dynamodb:PutItem (create album)
 │   │   ├── dynamodb:Query (check unique album name)
@@ -302,18 +303,18 @@ GetUploadURLFunction
 ├── Role: GetUploadURLLambdaExecutionRole
 │   ├── Policy: DynamoDB (albums table)
 │   │   ├── dynamodb:GetItem (verify album exists)
-│   │   └── dynamodb:PutItem (create photo record with PENDING status)
+│   │   └── dynamodb:PutItem (create image record with PENDING status)
 │   ├── Policy: S3 (albums-prod bucket)
 │   │   └── s3:GetObject (for presigned URL generation internally)
 │   ├── Policy: CloudWatch Logs
 │   └── Policy: CloudWatch Metrics
 
-UpdateImageDataFunction (S3 event trigger)
+UpdateEntryFunction (S3 event trigger)
 ├── Role: UpdateImageDataLambdaExecutionRole
 │   ├── Policy: DynamoDB (albums table)
-│   │   └── dynamodb:UpdateItem (update photo metadata after validation)
+│   │   └── dynamodb:UpdateItem (update image metadata after validation)
 │   ├── Policy: S3 (albums-prod + image-thumbnails)
-│   │   ├── s3:GetObject (read original photo)
+│   │   ├── s3:GetObject (read original image)
 │   │   └── s3:PutObject (write to image-thumbnails for thumbnail)
 │   ├── Policy: CloudWatch Logs
 │   └── Policy: CloudWatch Metrics
@@ -323,15 +324,15 @@ ResizeImageFunction (S3 event trigger)
 │   ├── Policy: DynamoDB (albums table)
 │   │   └── dynamodb:UpdateItem (update resizeStatus to COMPLETED)
 │   ├── Policy: S3 (albums-prod + image-thumbnails)
-│   │   ├── s3:GetObject (read original photo)
-│   │   └── s3:PutObject (write 512×512 thumbnail)
+│   │   ├── s3:GetObject (read original image)
+│   │   └── s3:PutObject (write 256x256 thumbnail)
 │   ├── Policy: CloudWatch Logs
 │   └── Policy: CloudWatch Metrics
 
 GetDownloadURLFunction
 ├── Role: GetDownloadURLLambdaExecutionRole
 │   ├── Policy: DynamoDB (albums table)
-│   │   └── dynamodb:GetItem (verify photo exists, check ownership)
+│   │   └── dynamodb:GetItem (verify image exists, check ownership)
 │   ├── Policy: S3 (albums-prod + image-thumbnails)
 │   │   └── s3:GetObject (for presigned URL generation)
 │   ├── Policy: CloudWatch Logs
@@ -340,8 +341,8 @@ GetDownloadURLFunction
 DeleteImageFunction
 ├── Role: DeleteImageLambdaExecutionRole
 │   ├── Policy: DynamoDB (albums table)
-│   │   ├── dynamodb:DeleteItem (delete photo record)
-│   │   └── dynamodb:UpdateItem (decrement album photoCount)
+│   │   ├── dynamodb:DeleteItem (delete image record)
+│   │   └── dynamodb:UpdateItem (decrement album imageCount)
 │   ├── Policy: S3 (albums-prod + image-thumbnails)
 │   │   └── s3:DeleteObject (delete both original and thumbnail)
 │   ├── Policy: CloudWatch Logs
@@ -350,11 +351,11 @@ DeleteImageFunction
 DeleteAlbumFunction
 ├── Role: DeleteAlbumLambdaExecutionRole
 │   ├── Policy: DynamoDB (albums table)
-│   │   ├── dynamodb:Query (query all photos in album)
-│   │   ├── dynamodb:DeleteItem (delete album and photo records)
+│   │   ├── dynamodb:Query (query all images in album)
+│   │   ├── dynamodb:DeleteItem (delete album and image records)
 │   │   └── dynamodb:Scan (optional, for batch operations)
 │   ├── Policy: S3 (albums-prod + image-thumbnails)
-│   │   └── s3:DeleteObject (delete all photo objects)
+│   │   └── s3:DeleteObject (delete all image objects)
 │   ├── Policy: CloudWatch Logs
 │   └── Policy: CloudWatch Metrics
 ```
@@ -383,7 +384,7 @@ DeleteAlbumFunction
 | **Integration Testing** | Test Events | Latest | Written before implementation and run after deployment |
 | **API** | API Gateway | REST | HTTP interface to Lambdas |
 | **Storage** | DynamoDB | On-demand | Metadata tables |
-| **Files** | S3 | Standard | Photo + thumbnail storage |
+| **Files** | S3 | Standard | Image + thumbnail storage |
 | **Frontend** | Static HTML/JS/CSS | Vanilla JS | Served from S3 directly |
 | **IaC** | Terraform | Latest | Infrastructure as code (Currently Out-of-Scope) |
 | **CI/CD** | GitHub Actions | Built-in | Build, test, deploy workflow |
@@ -393,7 +394,7 @@ DeleteAlbumFunction
 ## Design Decisions Summary
 
 ✅ **8 Independent Lambda Functions** (one Maven project each, per constitution)  
-✅ **S3 + DynamoDB** for storage (photos + metadata)  
+✅ **S3 + DynamoDB** for storage (images + metadata)  
 ✅ **Presigned URL Pattern** for scalable uploads/downloads  
 ✅ **Event-Driven Thumbnail Generation** (async after S3 upload)  
 ✅ **Test-First Development** (unit + integration + AWS deployment tests)  
@@ -408,6 +409,6 @@ DeleteAlbumFunction
 
 ## Next Steps (Phase 1)
 
-1. **Data Model** (`data-model.md`): Define Album and Photo entities with all attributes, relationships, validation rules
+1. **Data Model** (`data-model.md`): Define Album and Image entities with all attributes, relationships, validation rules
 2. **API Contracts** (`contracts/`): OpenAPI/REST specs for all 6 Lambda functions
 3. **Agent Context**: Update copilot context with confirmed tech stack and Lambda architecture

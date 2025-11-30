@@ -22,7 +22,7 @@ paths:
     delete:
       summary: Delete Album
       operationId: deleteAlbum
-      description: Delete an entire album and all its photos from S3 and DynamoDB
+      description: Delete an entire album and all its images from S3 and DynamoDB
       tags:
         - Albums
       parameters:
@@ -50,11 +50,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /albums/{albumId}/photos/{photoId}:
+  /albums/{albumId}/images/{imageId}:
     delete:
       summary: Delete Image
       operationId: deleteImage
-      description: Delete a photo from an album (removes from S3 and DynamoDB)
+      description: Delete an image from an album (removes from S3 and DynamoDB)
       tags:
         - Images
       parameters:
@@ -64,7 +64,7 @@ paths:
           schema:
             type: string
             format: uuid
-        - name: photoId
+        - name: imageId
           in: path
           required: true
           schema:
@@ -72,11 +72,11 @@ paths:
             format: uuid
       responses:
         204:
-          description: Photo deleted successfully
+          description: Image deleted successfully
         401:
           description: Unauthorized - missing or invalid JWT token
         404:
-          description: Photo or album not found
+          description: Image or album not found
           content:
             application/json:
               schema:

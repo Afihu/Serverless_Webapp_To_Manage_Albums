@@ -72,7 +72,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /photos/{photoId}/metadata:
+  /images/{imageId}/metadata:
     put:
       summary: Update Image Metadata
       operationId: updateImageMetadata
@@ -80,7 +80,7 @@ paths:
       tags:
         - Images
       parameters:
-        - name: photoId
+        - name: imageId
           in: path
           required: true
           schema:
@@ -117,7 +117,7 @@ paths:
         401:
           description: Unauthorized - missing or invalid JWT token
         404:
-          description: Photo not found
+          description: Image not found
           content:
             application/json:
               schema:
@@ -211,13 +211,13 @@ components:
     Image:
       type: object
       required:
-        - photoId
+        - imageId
         - albumId
         - userId
         - fileName
         - uploadedAt
       properties:
-        photoId:
+        imageId:
           type: string
           format: uuid
           example: "660e8400-e29b-41d4-a716-446655440001"

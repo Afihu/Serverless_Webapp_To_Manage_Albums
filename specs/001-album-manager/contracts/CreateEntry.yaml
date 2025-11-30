@@ -60,7 +60,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /albums/{albumId}/photos:
+  /albums/{albumId}/images:
     post:
       summary: Create Image
       operationId: createImage
@@ -211,7 +211,7 @@ components:
     Image:
       type: object
       required:
-        - photoId
+        - imageId
         - albumId
         - userId
         - fileName
@@ -220,7 +220,7 @@ components:
         - uploadedAt
         - s3Url
       properties:
-        photoId:
+        imageId:
           type: string
           format: uuid
           example: "660e8400-e29b-41d4-a716-446655440001"

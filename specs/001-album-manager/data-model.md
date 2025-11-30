@@ -25,7 +25,9 @@
 This allows efficient querying:
 - Get all albums for user: `Query(PK=userId, SK begins_with "ALBUM#")`
 - Get all photos in album: `Query(PK=userId, SK begins_with "PHOTO#{albumId}#")`
-
+- The files can be identified and allow for duplicate names across different users as they are tied to its UUID, not the its name.
+- During development, only one userId exists, "dev-user".
+- In production, userId is the Cognito sub claim.
 ---
 
 ### Album Record Structure
@@ -79,7 +81,7 @@ This allows efficient querying:
 | `fileFormat` | String | ✅ Yes | Enum: JPEG, PNG, WEBP, GIF, HEIC | Image format detected at upload |
 | `uploadedAt` | String (ISO 8601) | ✅ Yes | Valid ISO 8601, must be server-generated | Timestamp when upload completed |
 | `s3Key` | String | ✅ Yes | Format: `{userId}/ALBUM#{albumId}/original/{fileName}` | S3 object key for full-resolution photo |
-| `thumbnailS3Key` | String | ✅ Yes | Format: `{userId}/PHOTO#{albumId}#{photoId}/thumb-512.webp` | S3 object key for 512×512 WebP thumbnail |
+| `thumbnailS3Key` | String | ✅ Yes | Format: `{userId}/PHOTO#{albumId}#{photoId}/thumb-256.webp` | S3 object key for 256x256 WebP thumbnail |
 | `width` | Number | ✅ Yes | > 0, integer | Image width in pixels |
 | `height` | Number | ✅ Yes | > 0, integer | Image height in pixels |
 | `mimeType` | String | ✅ Yes | Valid MIME type (e.g., `image/jpeg`) | MIME type of the photo |
@@ -110,7 +112,7 @@ This allows efficient querying:
   "fileFormat": "JPEG",
   "uploadedAt": "2025-11-08T14:30:00Z",
   "s3Key": "auth0|user-123abc/ALBUM#550e8400-e29b-41d4-a716-446655440000/original/sunset_beach.jpg",
-  "thumbnailS3Key": "auth0|user-123abc/PHOTO#550e8400-e29b-41d4-a716-446655440000#660f9511-f30c-52e5-b817-557766551111/thumb-512.webp",
+  "thumbnailS3Key": "auth0|user-123abc/PHOTO#550e8400-e29b-41d4-a716-446655440000#660f9511-f30c-52e5-b817-557766551111/thumb-256.webp",
   "width": 3840,
   "height": 2160,
   "mimeType": "image/jpeg",
@@ -185,14 +187,14 @@ albums-prod/
 - **Events**: S3 Put Object → triggers ResizeImage Lambda
 
 #### 2. **Image Thumbnails Bucket** (`image-thumbnails`)
-Stores resized WebP thumbnails (512×512) using type-prefixed paths aligned with DynamoDB structure.
+Stores resized WebP thumbnails (256x256) using type-prefixed paths aligned with DynamoDB structure.
 
 **Storage Structure**:
 ```
 image-thumbnails/
 ├── {userId}/
 │   ├── PHOTO#{albumId}#{photoId}/
-│   │   └── thumb-512.webp               # 512×512 WebP thumbnail
+│   │   └── thumb-256.webp               # 256x256 WebP thumbnail
 ```
 
 **Key Naming Convention**: Uses `PHOTO#{albumId}#{photoId}` prefix to match DynamoDB sort key structure for direct path construction.
@@ -234,7 +236,7 @@ albums-static/
 3. Lambda downloads original from albums-prod
    ↓
 4. Generates 1 resized version:
-   - thumb-512.webp (512×512, quality 90)
+   - thumb-256.webp (256x256, quality 90)
    ↓
 5. Uploads resized thumbnail to image-thumbnails bucket in same photoId folder
    ↓
@@ -248,7 +250,7 @@ albums-static/
 
 **Optimization Notes**:
 - WebP format provides excellent compression (~25-30% smaller than JPEG)
-- Single 512×512 size optimized for display across devices
+- Single 256x256 size optimized for display across devices
 - Processing time: <3 seconds for typical 3-5 MB photo
 - Lambda memory: 256 MB sufficient (single-size processing)
 
@@ -271,7 +273,7 @@ PHOTO#{albumId}#{photoId}    # Photo records
 
 **Resize Variant** (image-thumbnails bucket):
 ```
-{userId}/PHOTO#{albumId}#{photoId}/thumb-512.webp
+{userId}/PHOTO#{albumId}#{photoId}/thumb-256.webp
 ```
 
 **Benefits**:
@@ -285,36 +287,44 @@ PHOTO#{albumId}#{photoId}    # Photo records
 
 ## State Machines
 
-### Photo Upload State Machine
+### Photo Upload & Resize State Machine
+
+The photo lifecycle involves two independent state tracks: upload status and resize status. Photos appear in album list immediately after **COMPLETED upload** (with temporary thumbnail), and are upgraded to final thumbnail when **COMPLETED resize**.
 
 ```
-    ┌─────────────┐
-    │   PENDING   │  (User triggers upload, GetUploadURLFunction creates presigned URL)
-    └──────┬──────┘
-           │
-           │ (Browser uploads to S3, S3 event fired)
-           ▼
-    ┌─────────────────────────┐
-    │   UPLOADING_TO_S3       │  (UpdateImageDataFunction starts processing)
-    └──────┬────────┬─────────┘
-           │        │
-      Success   (Error)
-           │        │
-           ▼        ▼
-    ┌──────────┐  ┌────────────────┐
-    │ COMPLETED│  │ FAILED         │  (Log error, notify user, cleanup S3)
-    └──────────┘  └────────────────┘
+UPLOAD STATUS TRACK:                          RESIZE STATUS TRACK:
+    ┌─────────────┐                               ┌─────────────┐
+    │   PENDING   │ (GetUploadURLFunction)        │   PENDING   │ (Photo uploaded, waiting for resize)
+    └──────┬──────┘                               └──────┬──────┘
+           │                                             │
+           │ (Browser uploads to S3)                     │ (S3 event fires ProcessImageFunction)
+           ▼                                             ▼
+    ┌──────────────┐                           ┌──────────────────┐
+    │  COMPLETED   │◄──────────────────────────│    PROCESSING    │
+    │ (Photo visible│   Thumbnail replaced      │ (Resizing,       │
+    │  in album)   │   when resize completes   │  optimizing)     │
+    └──────┬───────┘                           └────────┬─────────┘
+           │                                           │
+    ┌─────────────────────────────────────────┐  ┌────────────┐
+    │ Upload fails before S3 storage          │  │ COMPLETED  │ (Final thumbnail ready)
+    ▼                                         ▼  └────────────┘
+ ┌────────┐                                ┌────────────┐
+ │ FAILED │ (Error logged, S3 cleanup)     │  FAILED    │ (Resize error, log, keep temp)
+ └────────┘                                └────────────┘
 ```
 
-**State Transitions**:
-1. **PENDING** → **COMPLETED**: Photo successfully uploaded to S3, metadata in DynamoDB, thumbnail generated
-2. **PENDING** → **FAILED**: Upload timeout (>5min), file validation error, S3 error
+**Upload Status Transitions** (photo stored in `uploadStatus` field):
+1. **PENDING** → **COMPLETED**: Photo successfully uploaded to S3, metadata record created in DynamoDB with temporary thumbnail URL (original image). **Photo appears in album list immediately.**
+2. **PENDING** → **FAILED**: Upload timeout (>5min), file validation error, S3 error. S3 cleanup occurs, user notified.
 
-**Validation at Each State**:
-- **PENDING**: File exists in temp S3 location; metadata record created with PENDING status
-- **UPLOADING**: File size verified; image format validated; dimensions extracted
-- **COMPLETED**: Thumbnail generated; metadata record updated; photo appears in album list
-- **FAILED**: Error logged; S3 file cleaned up; metadata record marked FAILED; user notified
+**Resize Status Transitions** (photo stored in `resizeStatus` field):
+1. **PENDING** → **COMPLETED**: ProcessImageFunction generates 256x256 WebP thumbnail, uploads to S3, updates DynamoDB with final thumbnail URL. **Album list updates with optimized thumbnail.**
+2. **PENDING** → **FAILED**: Resize processing error (invalid image, memory limit, timeout). Log error, retain temporary thumbnail for user, notify user of partial state.
+
+**Album List Visibility** (clarity from user request):
+- Photos appear when: `uploadStatus == COMPLETED` (regardless of `resizeStatus`)
+- Photos displayed with: Original image (temporary) if `resizeStatus == PENDING`, OR final 256x256 WebP if `resizeStatus == COMPLETED`
+- Transition is transparent to user: temporary thumbnail automatically replaces with optimized version
 
 ---
 
@@ -325,10 +335,10 @@ PHOTO#{albumId}#{photoId}    # Photo records
     │   ACTIVE    │
     └──────┬──────┘
            │
-           │ (DeleteAlbumFunction called)
+           │ (DeleteEntryFunction called with type=album)
            ▼
     ┌─────────────────────────┐
-    │   DELETING_PHOTOS       │  (Scan photos table for all photos in album)
+    │   DELETING_PHOTOS       │  (Query all photos with SK begins_with PHOTO#{albumId}#)
     └──────┬────────┬─────────┘
            │        │
       Success   (Error)
@@ -340,9 +350,101 @@ PHOTO#{albumId}#{photoId}    # Photo records
 ```
 
 **State Transitions**:
-1. **ACTIVE** → **DELETING_PHOTOS**: Scan DynamoDB for all photos in album; delete each photo's S3 objects
-2. **DELETING_PHOTOS** → **DELETED**: All photos and S3 objects deleted; album record deleted
-3. **DELETING_PHOTOS** → **DELETE_FAILED**: Partial deletion; retry with exponential backoff
+1. **ACTIVE** → **DELETING_PHOTOS**: Query DynamoDB for all photos in album; delete each photo's original + thumbnail S3 objects
+2. **DELETING_PHOTOS** → **DELETED**: All photos and S3 objects deleted; album record deleted from DynamoDB
+3. **DELETING_PHOTOS** → **DELETE_FAILED**: Partial deletion; retry with exponential backoff; album may be left in partial state
+
+---
+
+## Client Polling Strategy for Thumbnail Completion
+
+### Overview
+Browser polls the `ReadEntryFunction` endpoint to detect when the resize process completes and the final thumbnail becomes available. This enables real-time UI updates without server push infrastructure.
+
+### Polling Request Format
+
+**Endpoint**: `POST /read-entry` (ReadEntryFunction)
+
+**Request Body**:
+```json
+{
+  "type": "image",
+  "albumId": "550e8400-e29b-41d4-a716-446655440000",
+  "photoId": "660f9511-f30c-52e5-b817-557766551111"
+}
+```
+
+**Response Format**:
+```json
+{
+  "photoId": "660f9511-f30c-52e5-b817-557766551111",
+  "albumId": "550e8400-e29b-41d4-a716-446655440000",
+  "uploadStatus": "COMPLETED",
+  "resizeStatus": "PENDING|COMPLETED|FAILED",
+  "temporaryThumbnailUrl": "https://albums-prod.s3.amazonaws.com/{userId}/ALBUM#{albumId}/original/{fileName}?X-Amz-Expires=3600",
+  "finalThumbnailUrl": "https://image-thumbnails.s3.amazonaws.com/{userId}/PHOTO#{albumId}#{photoId}/thumb-256.webp?X-Amz-Expires=3600",
+  "uploadedAt": "2025-11-08T14:30:00Z",
+  "resizeCompletedAt": "2025-11-08T14:31:15Z"
+}
+```
+
+### Polling Algorithm
+
+**Initial State**:
+- `delay = 200` (milliseconds)
+- `maxDelay = 5000` (milliseconds, 5 seconds cap)
+- `maxAttempts = 60` (30 second timeout)
+- `attemptCount = 0`
+
+**Polling Loop**:
+```
+While attemptCount < maxAttempts:
+  1. Wait delay milliseconds
+  2. Send ReadEntry request for (type=image, albumId, photoId)
+  3. If response.resizeStatus == "COMPLETED":
+       - Replace temporary thumbnail with finalThumbnailUrl
+       - Stop polling (success)
+       - Log: "Thumbnail ready after N attempts"
+  4. Else if response.resizeStatus == "FAILED":
+       - Keep temporary thumbnail visible
+       - Stop polling (failure state)
+       - Log: "Thumbnail processing failed"
+  5. Else (PENDING):
+       - Schedule next poll
+       - Increase delay: delay = min(delay × 1.1, maxDelay) (10% backoff)
+       - Increment attemptCount
+       - Log: "Polling attempt N, next delay in X ms"
+
+After maxAttempts:
+  - Polling timeout: keep temporary thumbnail
+  - User can manually refresh to retry
+```
+
+**Backoff Progression** (10% increase per attempt):
+- Attempt 1: 200ms delay
+- Attempt 2: 220ms delay (200 × 1.1)
+- Attempt 3: 242ms delay (220 × 1.1)
+- Attempt 4: 266ms delay (242 × 1.1)
+- Attempt 5: 293ms delay (266 × 1.1)
+- Continues with 10% increase until capped at maxDelay (5000ms)
+
+### Error Handling
+
+| Scenario | Action |
+|----------|--------|
+| Network error on poll | Retry immediately; count toward maxAttempts |
+| HTTP 404 (photo not found) | Stop polling; log error; show error to user |
+| HTTP 500 (server error) | Retry with exponential backoff |
+| Polling timeout (60 attempts) | Stop polling; keep temporary thumbnail; allow manual refresh |
+| resizeStatus == FAILED | Stop polling immediately; show warning to user |
+
+### Frontend Implementation Notes
+
+- Start polling **immediately after upload completes**
+- Use browser `fetch()` with 5-second timeout per request
+- Debounce UI updates: only update DOM if thumbnail URL changes
+- Store photo metadata locally to preserve state across navigation
+- Resume polling if user returns to album (fresh attempt counter)
 
 ## DynamoDB Design Decisions
 
@@ -390,7 +492,7 @@ if (albumExists(userId, albumName)) {
 ### Photo Validation
 
 ```java
-// UpdateImageDataFunction validation
+// UpdateEntryFunction validation
 long fileSizeBytes = metadata.getContentLength();
 if (fileSizeBytes > 52_428_800) { // 50 MB
   throw new ValidationException("File size exceeds 50 MB limit");
@@ -461,7 +563,7 @@ if (image.getWidth() <= 0 || image.getHeight() <= 0) {
 ### Image Processing (WebP Thumbnail Generation)
 
 **Format**: WebP (modern, efficient, 30-40% smaller than JPEG for photos)  
-**Size**: 512×512 pixels (single size, not multiple variants)  
+**Size**: 256x256 pixels (single size, not multiple variants)  
 **Quality**: 90% for high-quality thumbnails with minimal file size
 
 **Java Implementation Considerations**:
@@ -472,7 +574,7 @@ if (image.getWidth() <= 0 || image.getHeight() <= 0) {
 
 **S3 Storage Optimization**:
 - Store original photos in `albums-prod` bucket (user pays for originals)
-- Store 512×512 WebP thumbnails in `image-thumbnails` bucket (separate for cost tracking)
+- Store 256x256 WebP thumbnails in `image-thumbnails` bucket (separate for cost tracking)
 - Single thumbnail per photo (reduces complexity, fast generation)
 - Presigned URLs for both upload (original) and download (thumbnail)
 

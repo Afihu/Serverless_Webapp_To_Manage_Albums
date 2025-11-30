@@ -18,7 +18,7 @@ security:
   - BearerAuth: []
 
 paths:
-  /albums/{albumId}/photos/presigned-upload:
+  /albums/{albumId}/images/presigned-upload:
     post:
       summary: Get Presigned Upload URL
       operationId: getPresignedUploadURL
@@ -107,16 +107,16 @@ components:
     GetUploadURLResponse:
       type: object
       required:
-        - photoId
+        - imageId
         - uploadUrl
         - expiresIn
         - uploadMethod
         - maxFileSize
       properties:
-        photoId:
+        imageId:
           type: string
           format: uuid
-          description: Pre-generated photo ID (created in DynamoDB immediately)
+          description: Pre-generated image ID (created in DynamoDB immediately)
           example: "660e8400-e29b-41d4-a716-446655440001"
         uploadUrl:
           type: string

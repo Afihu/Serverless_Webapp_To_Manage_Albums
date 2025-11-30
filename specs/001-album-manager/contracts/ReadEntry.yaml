@@ -7,8 +7,8 @@ info:
     
     Handles multiple endpoints with overlapping semantics:
     - `GET /albums/{albumId}` - Get album details
-    - `GET /albums/{albumId}/photos` - Get thumbnail gallery (batch retrieval)
-    - `POST /photos/{photoId}/presigned-download` - Get presigned URL for original or thumbnail
+    - `GET /albums/{albumId}/images` - Get thumbnail gallery (batch retrieval)
+    - `POST /images/{imageId}/presigned-download` - Get presigned URL for original or thumbnail
     
     **Note**: This is part of the operation-based API contract structure. See `README.md` in this directory for the complete API overview.
 
@@ -56,11 +56,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /albums/{albumId}/photos:
+  /albums/{albumId}/images:
     get:
       summary: Get Thumbnail Gallery
       operationId: getThumbnailGallery
-      description: Get presigned thumbnail URLs for all photos in album with pagination
+      description: Get presigned thumbnail URLs for all images in album with pagination
       tags:
         - Images
       parameters:
@@ -76,16 +76,16 @@ paths:
             type: integer
             default: 50
             maximum: 100
-          description: Maximum number of photos to return per page
+          description: Maximum number of images to return per page
         - name: offset
           in: query
           schema:
             type: integer
             default: 0
-          description: Number of photos to skip for pagination
+          description: Number of images to skip for pagination
       responses:
         200:
-          description: Array of photos with presigned thumbnail URLs
+          description: Array of images with presigned thumbnail URLs
           content:
             application/json:
               schema:
@@ -105,15 +105,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /photos/{photoId}/presigned-download:
+  /images/{imageId}/presigned-download:
     post:
       summary: Get Download URL
       operationId: getDownloadURL
-      description: Get presigned S3 URL for downloading a photo resource (original or thumbnail)
+      description: Get presigned S3 URL for downloading an image resource (original or thumbnail)
       tags:
         - Images
       parameters:
-        - name: photoId
+        - name: imageId
           in: path
           required: true
           schema:
@@ -141,7 +141,7 @@ paths:
         401:
           description: Unauthorized - missing or invalid JWT token
         404:
-          description: Photo or resource not found
+          description: Image or resource not found
           content:
             application/json:
               schema:
@@ -206,8 +206,8 @@ components:
       required:
         - albumId
         - albumName
-        - photos
-        - photoCount
+        - images
+        - imageCount
         - total
       properties:
         albumId:
@@ -218,31 +218,31 @@ components:
           type: string
           maxLength: 255
           example: "Family Trip 2025"
-        photos:
+        images:
           type: array
-          description: Array of photos with thumbnail URLs
+          description: Array of images with thumbnail URLs
           items:
-            $ref: '#/components/schemas/PhotoThumbnail'
-        photoCount:
+            $ref: '#/components/schemas/ImageThumbnail'
+        imageCount:
           type: integer
-          description: Number of photos in this response
+          description: Number of images in this response
           example: 50
         total:
           type: integer
-          description: Total number of photos in album (for pagination)
+          description: Total number of images in album (for pagination)
           example: 150
 
-    PhotoThumbnail:
+    ImageThumbnail:
       type: object
       required:
-        - photoId
+        - imageId
         - fileName
         - fileSize
         - fileFormat
         - uploadedAt
         - thumbnailUrl
       properties:
-        photoId:
+        imageId:
           type: string
           format: uuid
           example: "660e8400-e29b-41d4-a716-446655440001"

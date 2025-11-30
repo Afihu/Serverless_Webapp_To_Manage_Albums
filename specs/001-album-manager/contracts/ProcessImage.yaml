@@ -100,7 +100,7 @@ components:
                 key:
                   type: string
                   description: S3 object key (path/to/original/image.jpg)
-                  example: "albums/550e8400-e29b-41d4-a716-446655440000/photos/image-001.jpg"
+                  example: "albums/550e8400-e29b-41d4-a716-446655440000/images/image-001.jpg"
                 size:
                   type: integer
                   description: File size in bytes
@@ -110,7 +110,7 @@ components:
       type: object
       required:
         - status
-        - photoId
+        - imageId
         - originalSize
         - thumbnailSize
         - processingTime
@@ -119,10 +119,10 @@ components:
           type: string
           enum: ["success"]
           example: "success"
-        photoId:
+        imageId:
           type: string
           format: uuid
-          description: ID of the processed photo
+          description: ID of the processed image
           example: "660e8400-e29b-41d4-a716-446655440001"
         originalSize:
           type: integer
@@ -136,7 +136,7 @@ components:
           type: string
           format: uri
           description: S3 path to generated thumbnail
-          example: "s3://album-photos-bucket/thumbnails/550e8400-e29b-41d4-a716-446655440000/photos/image-001-thumb.webp"
+          example: "s3://album-photos-bucket/thumbnails/550e8400-e29b-41d4-a716-446655440000/images/image-001-thumb.webp"
         processingTime:
           type: integer
           description: Total processing time in milliseconds
@@ -170,7 +170,7 @@ components:
               type: object
               nullable: true
               example:
-                photoId: "660e8400-e29b-41d4-a716-446655440001"
+                imageId: "660e8400-e29b-41d4-a716-446655440001"
                 reason: "Image format not supported"
 
     # Processing Configuration (for reference)

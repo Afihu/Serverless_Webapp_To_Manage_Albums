@@ -56,7 +56,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /albums/{albumId}/photos:
+  /albums/{albumId}/images:
     get:
       summary: List Images in Album
       operationId: listImagesInAlbum
@@ -211,13 +211,13 @@ components:
     ImageSummary:
       type: object
       required:
-        - photoId
+        - imageId
         - fileName
         - fileSize
         - fileFormat
         - uploadedAt
       properties:
-        photoId:
+        imageId:
           type: string
           format: uuid
           example: "660e8400-e29b-41d4-a716-446655440001"

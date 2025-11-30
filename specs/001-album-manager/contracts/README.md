@@ -1,11 +1,11 @@
-# API Contracts - Photo Album Manager
+# API Contracts - Image Album Manager
 
 **Version**: 2.0.0 (Operation-Based Architecture)  
 **Last Updated**: 2025-11-24
 
 ## Overview
 
-As of v2.0.0, the Photo Album Manager API has been refactored to use **operation-based Lambda functions** rather than entity-specific ones. Each operation (Create, Read, Update, Delete, List) is handled by a single Lambda function that accepts a `type` discriminator parameter to determine whether it's operating on an `album` or `image` entity.
+As of v2.0.0, the Image Album Manager API has been refactored to use **operation-based Lambda functions** rather than entity-specific ones. Each operation (Create, Read, Update, Delete, List) is handled by a single Lambda function that accepts a `type` discriminator parameter to determine whether it's operating on an `album` or `image` entity.
 
 This design:
 - Maximizes code reuse across similar entity types
@@ -18,17 +18,17 @@ This design:
 | Contract | Purpose | Endpoints | Lambda Function | Type Discriminator |
 |----------|---------|-----------|-----------------|-------------------|
 | `CreateEntry.yaml` | Create album or image | `POST /albums` (album) | `create-entry` | `type: album \| image` |
-| | | `POST /albums/{albumId}/photos` (image) | | |
+| | | `POST /albums/{albumId}/images` (image) | | |
 | `ReadEntry.yaml` | Get entry details & presigned URLs | `GET /albums/{albumId}` (album) | `read-entry` | `type: album \| image` |
-| | | `GET /albums/{albumId}/photos` (thumbnails) | | |
-| | | `POST /photos/{photoId}/presigned-download` (original/thumbnail) | | |
+| | | `GET /albums/{albumId}/images` (thumbnails) | | |
+| | | `POST /images/{imageId}/presigned-download` (original/thumbnail) | | |
 | `UpdateEntry.yaml` | Update album or image metadata | `PUT /albums/{albumId}` (album) | `update-entry` | `type: album \| image` |
-| | | `PUT /photos/{photoId}/metadata` (image) | | |
+| | | `PUT /images/{imageId}/metadata` (image) | | |
 | `DeleteEntry.yaml` | Delete album or image | `DELETE /albums/{albumId}` (album) | `delete-entry` | `type: album \| image` |
-| | | `DELETE /albums/{albumId}/photos/{photoId}` (image) | | |
+| | | `DELETE /albums/{albumId}/images/{imageId}` (image) | | |
 | `ListEntries.yaml` | List albums or images with pagination | `GET /albums` (albums) | `list-entries` | `type: album \| image` |
-| | | `GET /albums/{albumId}/photos` (images in album) | | |
-| `GetUploadURL.yaml` | Generate presigned S3 upload URL | `POST /albums/{albumId}/photos/presigned-upload` | `get-upload-url` | N/A (image only) |
+| | | `GET /albums/{albumId}/images` (images in album) | | |
+| `GetUploadURL.yaml` | Generate presigned S3 upload URL | `POST /albums/{albumId}/images/presigned-upload` | `get-upload-url` | N/A (image only) |
 | `ProcessImage.yaml` | S3 event: resize & generate thumbnails | S3 bucket event (internal) | `process-image` | N/A (event-driven) |
 
 ## Type Discriminator Pattern
@@ -54,7 +54,7 @@ All CreateEntry, ReadEntry, UpdateEntry, DeleteEntry, and ListEntries functions 
 
 Valid type values:
 - `album` - Album entity
-- `image` - Photo/Image entity
+- `image` - Image entity
 
 ## Key Architectural Changes from v1.0.0
 
@@ -91,7 +91,7 @@ Combine all contracts into a single OpenAPI spec for bulk import:
 # master-openapi.yaml
 openapi: 3.0.0
 info:
-  title: Photo Album Manager API
+  title: Image Album Manager API
   version: 2.0.0
 paths:
   /albums:
