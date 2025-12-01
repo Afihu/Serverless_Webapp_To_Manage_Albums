@@ -259,7 +259,7 @@ public class SortKeyBuilder {
 
 ## Phase 2: Exception Handling (Exception)
 
-### T2.1 - Custom Exception Hierarchy [P]
+### T2.1 - Custom Exception Hierarchy [P] [✅ COMPLETED]
 
 **Files**:
 - `src/main/java/com/albummanager/exception/AlbumManagerException.java` (base)
@@ -328,7 +328,7 @@ public class DynamoDBConfig {
 ```
 
 **Configuration Details**:
-- Region: Environment variable `AWS_REGION` (default: us-east-1)
+- Region: Environment variable `AWS_REGION` (default: ap-southeast-1)
 - Retry policy: exponential backoff, max 3 retries for transient errors
 - Timeout: 30 seconds per request
 - Connection pooling: Default AWS SDK connection pool
@@ -384,8 +384,11 @@ public class AlbumService {
 **createAlbum**:
 - Validate `albumName`: not empty, 1-255 chars, no leading/trailing spaces
 - Check for duplicate album name via query: `Query(userId, "ALBUM#" begins_with)` and scan for name match
-- Generate UUID v4 for albumId
-- Write to DynamoDB with `uploadStatus: COMPLETED`, `imageCount: 0`
+- Generate UUID v4 for albumId (through AWS SDK, DynamoDB does not auto-generate)
+- Write to DynamoDB with 
+    - `createdAt`: ISO 8601 timestamp (server-generated, current time)
+    - `updatedAt`: ISO 8601 timestamp (server-generated, matches createdAt on creation)
+    - `imageCount` = 0
 - Catch `ConditionalCheckFailedException` → DuplicateAlbumException
 - Catch other SDK exceptions → DynamoDBOperationException with context (userId, albumName)
 - Log: "Album created: {albumId} for user {userId}"
@@ -500,7 +503,7 @@ public class ImageService {
   - Validate mimeType matches fileFormat
 - Generate UUID v4 for imageId
 - Construct S3 keys: 
-  - `s3Key`: `{userId}/ALBUM#{albumId}/original/{fileName}`
+  - `s3Key`: `{userId}/IMAGE#{albumId}#{imageId}#OG`
   - `thumbnailS3Key`: `{userId}/IMAGE#{albumId}#{imageId}/thumb-256.webp`
 - Write to DynamoDB with `uploadStatus: PENDING`, `resizeStatus: PENDING`
 - Increment album's imageCount via AlbumService.incrementImageCount()
@@ -594,7 +597,7 @@ public class S3Config {
 ```
 
 **Configuration**:
-- Region: Environment variable `AWS_REGION` (default: us-east-1)
+- Region: Environment variable `AWS_REGION` (default: ap-southeast-1)
 - Retry policy: exponential backoff, max 3 retries
 
 ---
@@ -945,7 +948,7 @@ public class Constants {
     
     // Lambda
     public static final int LAMBDA_TIMEOUT_SECONDS = 900;  // 15 minutes
-    public static final String DEFAULT_REGION = "us-east-1";
+    public static final String DEFAULT_REGION = "ap-southeast-1";
     
     // Pagination
     public static final int DEFAULT_PAGE_SIZE = 20;

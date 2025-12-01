@@ -57,7 +57,7 @@ SK:     ALBUM#{id}          # Album records
 **S3 Structure** (aligned with DynamoDB):
 ```
 albums-prod/
-├── {userId}/ALBUM#{albumId}/original/{fileName}
+├── {userId}/IMAGE#{albumId}#{imageId}#OG
 
 image-thumbnails/
 ├── {userId}/IMAGE#{albumId}#{imageId}/thumb-256.webp
@@ -82,7 +82,7 @@ image-thumbnails/
 
 **Flow**:
 1. User clicks "Upload Image" → Browser calls `GetUploadURLFunction`
-2. Lambda returns presigned URL (valid 15 minutes) pointing to `{userId}/ALBUM#{albumId}/original/{fileName}`
+2. Lambda returns presigned URL (valid 15 minutes) pointing to `{userId}/IMAGE#{albumId}#{imageId}#OG`
 3. Browser uploads directly to S3 (bypasses Lambda)
 4. S3 fires event → triggers `ResizeImageFunction`
 5. Lambda generates 256x256 WebP thumbnail, stores in `image-thumbnails` bucket at `{userId}/IMAGE#{albumId}#{imageId}/thumb-256.webp`
